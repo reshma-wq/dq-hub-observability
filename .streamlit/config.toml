@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#EF4444"         # Accent red for sliders and notifications
+backgroundColor = "#070A13"      # Deep canvas dark background
+secondaryBackgroundColor = "#111827" # Background layer matching your card blocks
+textColor = "#E2E8F0"            # Bright, high-contrast readable white text
+font = "sans serif"
