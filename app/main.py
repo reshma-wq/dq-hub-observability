@@ -51,7 +51,6 @@ app.include_router(
     tags=["Rules"]
 )
 
-
 @app.get("/")
 def home():
 

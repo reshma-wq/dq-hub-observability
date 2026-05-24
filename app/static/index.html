@@ -785,7 +785,7 @@ async function loadDashboardSummary() {
 
     const response =
       await fetch(
-        "https://8000-cs-f72130ca-d490-4587-ac8b-e9d626c08d9a.cs-asia-southeast1-ajrg.cloudshell.dev/dashboard/summary"
+        "dashboard/summary"
       );
 
     const data =
@@ -1028,15 +1028,29 @@ function renderOverview() {
     </div>
 
     <div class="stats">
-      <div class="stat-value">
-        <span id="system-health" class="num" style="color:${allTablesHealth < 70 ? 'var(--danger)' : allTablesHealth < 90 ? 'var(--warning)' : 'var(--success)'}">${allTablesHealth}</span>
-        <span class="unit">%</span>
-      </div>
-        <div class="stat-bar"><div class="stat-bar-fill" style="width:${allTablesHealth}%;background:${allTablesHealth < 70 ? 'var(--danger)' : allTablesHealth < 90 ? 'var(--warning)' : 'var(--success)'}"></div></div>
-      </div>
+    <div class="stat">
+    <div class="stat-label">System health</div>
+    <div class="stat-value">
+    <span class="num" style="color:${allTablesHealth < 70 ? 'var(--danger)' : allTablesHealth < 90 ? 'var(--warning)' : 'var(--success)'}">${allTablesHealth}</span>
+    <span class="unit">%</span>
+    </div>
+    <div class="stat-bar"><div class="stat-bar-fill" style="width:${allTablesHealth}%;background:${allTablesHealth < 70 ? 'var(--danger)' : allTablesHealth < 90 ? 'var(--warning)' : 'var(--success)'}"></div></div>
+    </div>
+      <div class="stat">
+      <div class="stat-label">Tables monitored</div>
       <div class="stat-value"><span id="tables-monitored" class="num">${monitored}</span><span class="unit">of ${total}</span></div>
+      <div class="stat-foot">${total - monitored} unmonitored</div>
+      </div>
+      <div class="stat">
+      <div class="stat-label">Open incidents</div>
       <div class="stat-value"><span id="open-incidents" class="num" style="color:${incidents.length > 0 ? 'var(--danger)' : 'var(--text-primary)'}">${incidents.length}</span></div>
-      <div class="stat-value"><span id="last-scan" class="num">2m</span><span class="unit">ago</span></div>
+      <div class="stat-foot">${incidents.length > 0 ? 'all on product_catalog' : 'no active incidents'}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Last scan</div>
+        <div class="stat-value"><span class="num">2m</span><span class="unit">ago</span></div>
+        <div class="stat-foot"><span class="live-dot"></span>auto · every 15m</div>
+      </div>
     </div>
 
     <div class="card">
@@ -1140,9 +1154,24 @@ function renderOverview() {
 // RENDER: TABLE DETAIL
 // ─────────────────────────────────────────────────────────────
 
-function renderTableDetail() {
-  if (!state.currentTable) { state.view = 'overview'; return render(); }
+async function renderTableDetail() {
+
+  if (!state.currentTable) {
+    state.view = 'overview';
+    return render();
+  }
+
   const t = currentTable();
+
+  const response =
+  await fetch(
+  `/dashboard/table/${state.currentTable}`
+  );
+
+  const tableData =
+  await response.json();
+
+  t.rules = tableData.rules || [];
   const tn = state.currentTable;
   const st = tableStatus(t);
   const health = tableHealth(t);
@@ -1782,36 +1811,60 @@ function closePanel() {
 // ACTIONS
 // ─────────────────────────────────────────────────────────────
 
-function runScan(tableName) {
-  if (state.scanRunning) return;
-  state.scanRunning = true;
-  render();
-  showToast(tableName ? `Scanning ${tableName}…` : 'Scanning all monitored tables…', 'info');
+async function runScan(tableName) {
 
-  setTimeout(() => {
-    state.scanRunning = false;
-    if (tableName) {
-      const t = state.tables[tableName];
-      const broken = t.rules.find(r => r.status === 'broken');
-      if (broken) {
-        t.lastScanFailed = true;
-        showToast('Scan failed. See banner for details.', 'error');
-      } else {
-        t.lastScanFailed = false;
-        t.lastScan = 'just now';
-        showToast(`Scan complete. ${t.rules.filter(r => r.status === 'failing').length} rules failing.`);
-      }
-    } else {
-      Object.values(state.tables).forEach(t => {
-        if (t.rules.length > 0 && !t.rules.some(r => r.status === 'broken')) {
-          t.lastScan = 'just now';
-        }
-      });
-      showToast('All scans complete.');
-    }
+  try {
+
+    state.scanRunning = true;
+
     render();
-  }, 1500);
+
+    const response = await fetch(
+      `/execution/run/${tableName}`,
+      {
+        method: "POST"
+      }
+    );
+
+    const data =
+      await response.json();
+
+    showToast(
+      `Scan complete: ${data.status}`,
+      "success"
+    );
+
+    const dashboardResponse =
+      await fetch(
+        `/dashboard/table/${tableName}`
+      );
+
+    const tableData =
+      await dashboardResponse.json();
+
+    state.tables[tableName].rules =
+      tableData.rules || [];
+
+    state.tables[tableName].lastScan =
+      "just now";
+
+  } catch (error) {
+
+    console.error(error);
+
+    showToast(
+      "Scan failed",
+      "error"
+    );
+
+  } finally {
+
+    state.scanRunning = false;
+
+    render();
+  }
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // MASTER RENDER

@@ -21,30 +21,32 @@ class BigQueryAdapter:
             
         return "\n".join(schema_summary)
 
-    def get_registered_rules(self, dataset_name: str, table_name: str) -> str:
-        """
-        Safely retrieves the current active YAML rule configuration string 
-        for a given table using parameterized filtering.
-        Returns None if no record exists at all.
-        """
+    def get_registered_rules(self,dataset_name: str,table_name: str):
         query = f"""
-            SELECT yaml_config 
-            FROM `{self.project_id}.{dataset_name}.dq_rules_registry` 
-            WHERE table_name = @table
-            LIMIT 1
+            SELECT *
+            FROM
+            `{self.project_id}.{dataset_name}.dq_rules_registry`
+            WHERE
+            table_name = @table
         """
+
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("table", "STRING", table_name)
+                bigquery.ScalarQueryParameter(
+                    "table",
+                    "STRING",
+                    table_name
+                )
             ]
         )
-        
-        query_job = self.client.query(query, job_config=job_config)
-        results = list(query_job.result())
-        
-        if results:
-            return results[0].yaml_config
-        return None  # Explicitly return None if no record exists yet
+
+        results = self.client.query(
+            query,
+            job_config=job_config
+        ).result()
+
+        return list(results)
+
 
     def register_rule(self, dataset, rule):
         print("INSERTING RULE")
@@ -87,18 +89,31 @@ class BigQueryAdapter:
         query_job = self.client.query(generated_sql)
         return list(query_job.result())
 
-    def insert_watchtower_result(self, dataset, result_record):
-        table_id = f"{self.project_id}.{dataset}.dq_watchtower_results"
+    def insert_watchtower_result(self,dataset,result_record):
+
+        table_id = (
+            f"{self.project_id}."
+            f"{dataset}."
+            f"dq_watchtower_results"
+        )
 
         rows = [result_record]
+
+        print("INSERTING:")
+        print(result_record)
 
         errors = self.client.insert_rows_json(
             table_id,
             rows
         )
 
+        print("BQ ERRORS:")
+        print(errors)
+
         if errors:
             raise Exception(errors)
+
+        print("INSERT SUCCESS")
 
     def execute_rule_sql(self, sql):
 
@@ -235,6 +250,67 @@ class BigQueryAdapter:
             "open_incidents": row["open_incidents"],
             "last_scan": str(row["last_scan"])
         }
+
+    def get_table_details(self,dataset,table_name):
+        query = f"""
+        SELECT
+            rule_name,
+            column_name,
+            dq_status,
+            failed_records
+        FROM
+            `{self.project_id}.{dataset}.dq_watchtower_results`
+        WHERE
+            table_name = '{table_name}'
+        QUALIFY ROW_NUMBER() OVER(
+            PARTITION BY rule_name
+            ORDER BY execution_ts DESC
+        ) = 1
+        """
+
+        results = list(
+            self.client.query(query).result()
+        )
+
+        rules = []
+
+        for index, row in enumerate(results):
+
+            rules.append({
+
+                "id":
+                    f"rule_{index}",
+
+                "column":
+                    row.column_name,
+
+                "name":
+                    row.rule_name,
+
+                "description":
+                    row.rule_name,
+
+                "status":
+                    "failing"
+                    if row.dq_status == "FAIL"
+                    else "passing",
+
+                "violations":
+                    row.failed_records or 0
+            })
+
+        return {
+
+            "table_name":
+                table_name,
+
+            "total_rules":
+                len(rules),
+
+            "rules":
+                rules
+        }
+
 
     def save_results_to_bq(self, results, results_table_path: str, full_target_table_name: str):
         """

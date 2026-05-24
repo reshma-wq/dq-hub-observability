@@ -11,15 +11,17 @@ class ExecutionService:
     def __init__(self):
 
         self.bq = BigQueryAdapter(PROJECT_ID)
+        TARGET_DATASET = "thd_bronze"
 
     def run_checks(self, table_name):
 
         run_id = str(uuid.uuid4())
 
-        rules = self.bq.get_active_rules(
-            TARGET_DATASET,
-            table_name
-        )
+        #rules = self.bq.get_registered_rules(dataset,table_name)
+        rules = self.bq.get_registered_rules(TARGET_DATASET,table_name)
+        print("RULES FETCHED")
+        print(rules)
+        print(len(rules))
 
         total_rules = len(rules)
 
@@ -38,12 +40,15 @@ class ExecutionService:
 
         completed = 0
 
+        print("ENTERING LOOP")
         for rule in rules:
+            print("RUNNING RULE")
+            print(rule)
 
             start_time = time.time()
 
             result = self.bq.execute_rule_sql(
-                rule["compiled_sql"]
+                rule.compiled_sql
             )
 
             execution_time_ms = int(
@@ -64,6 +69,7 @@ class ExecutionService:
                 total_records
             ) * 100 if total_records > 0 else 0
 
+            print("INSERT FUNCTION CALLING")
             self.bq.insert_watchtower_result(
                 TARGET_DATASET,
                 {
@@ -77,10 +83,10 @@ class ExecutionService:
                         table_name,
 
                     "column_name":
-                        rule["column_name"],
+                        rule.column_name,
 
                     "rule_name":
-                        rule["rule_name"],
+                        rule.rule_name,
 
                     "total_records":
                         total_records,
