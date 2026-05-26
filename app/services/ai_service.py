@@ -32,6 +32,7 @@ class AIService:
             TARGET_DATASET,
             table_name
         )
+        full_table_name = (f"{PROJECT_ID}."f"{TARGET_DATASET}."f"{table_name}")
 
         # Enterprise-grade AI prompt
         prompt = f"""
@@ -39,8 +40,8 @@ You are an expert Enterprise Data Quality Architect.
 
 Analyze the following BigQuery table schema carefully.
 
-TABLE NAME:
-{table_name}
+BIGQUERY TABLE:
+`{full_table_name}`
 
 SCHEMA:
 {schema}
@@ -80,12 +81,36 @@ Possible rule categories include:
 - business rule validations
 - threshold validations
 
+CRITICAL BIGQUERY SQL RULES:
+
+- ALWAYS use fully-qualified BigQuery table names
+- NEVER use unqualified table names
+- ALWAYS reference tables using:
+  `project.dataset.table`
+
+Wrong example:
+FROM table_name
+
+Correct example:
+FROM `{full_table_name}`
+
+This rule applies to:
+- main queries
+- subqueries
+- nested SELECT statements
+- EXISTS clauses
+- JOINs
+- CTEs
+- all SQL references
+
 IMPORTANT:
 - Generate ALL applicable rules
 - Do NOT limit number of rules
 - Do NOT skip columns
 - Generate multiple rules per column if applicable
-- sql_condition must ONLY contain SQL WHERE condition
+- sql_condition must ONLY contain SQL boolean condition
+- sql_condition may contain nested subqueries if needed
+- all table references inside sql_condition must use fully-qualified BigQuery table names
 - Do NOT generate full SELECT query
 - rule_name must be enterprise-friendly
 - description must explain business intent
@@ -110,11 +135,14 @@ Return raw JSON only.
 """
 
         # Generate AI response
-        response = model.generate_content(prompt)
+        response = model.generate_content(
+            prompt
+        )
 
         raw_text = response.text.strip()
 
         # Clean markdown if Gemini returns it
+
         raw_text = raw_text.replace(
             "```json",
             ""
@@ -124,4 +152,28 @@ Return raw JSON only.
         )
 
         # Convert to Python JSON
-        return json.loads(raw_text)
+
+        rules = json.loads(
+            raw_text
+        )
+
+        # Validate generated SQL
+
+        for rule in rules:
+
+            sql_condition = rule.get(
+                "sql_condition",
+                ""
+            )
+
+            if (
+                "FROM " in sql_condition.upper()
+                and full_table_name not in sql_condition
+            ):
+
+                raise Exception(
+                    f"Invalid SQL generated for rule: "
+                    f"{rule.get('rule_name')}"
+                )
+
+        return rules
