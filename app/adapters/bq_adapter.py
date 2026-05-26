@@ -187,69 +187,315 @@ class BigQueryAdapter:
         }
 
     def get_latest_results(self, dataset):
+
         query = f"""
             SELECT *
             FROM (
                 SELECT *,
                     ROW_NUMBER() OVER (
-                            PARTITION BY table_name, rule_name
-                            ORDER BY execution_ts DESC
+                        PARTITION BY table_name, rule_name
+                        ORDER BY execution_ts DESC
                     ) AS rn
                 FROM `{self.project_id}.{dataset}.dq_watchtower_results`
             )
             WHERE rn = 1
-            """
+        """
 
-        results = list(self.client.query(query).result())
+        results = list(
+            self.client.query(query).result()
+        )
 
-        response = []
+        tables = {}
 
-        for row in results:
+        for index, row in enumerate(results):
 
-            response.append({
-                "table_name": row["table_name"],
-                "column_name": row["column_name"],
-                "rule_name": row["rule_name"],
-                "failed_records": row["failed_records"],
-                "passed_records": row["passed_records"],
-                "pass_percentage": row["pass_percentage"],
-                "dq_status": row["dq_status"],
-                "execution_ts": str(row["execution_ts"])
+            table_name = row["table_name"]
+
+            if table_name not in tables:
+
+                tables[table_name] = {
+                    "table_name": table_name,
+                    "rules": [],
+                    "last_scan": str(row["execution_ts"]),
+                    "rows":
+                        (row["passed_records"] or 0) +(row["failed_records"] or 0),
+                    "columns":
+                        self.get_table_columns(dataset,table_name)
+                }
+
+            tables[table_name]["rules"].append({
+
+                "id":
+                    f"rule_{index}",
+
+                "column":
+                    row["column_name"],
+
+                "name":
+                    row["rule_name"],
+
+                "description":
+                    row["rule_name"],
+
+                "status":
+                    "failing"
+                    if row["dq_status"] == "FAIL"
+                    else "passing",
+
+                "violations":
+                    row["failed_records"] or 0
             })
 
-        return response
+        return list(
+            tables.values()
+        )
 
-    def get_dashboard_summary(self, dataset):
-        query = f"""
-            SELECT
-                ROUND(AVG(pass_percentage), 2) AS system_health,
-                COUNT(DISTINCT table_name) AS tables_monitored,
-                COUNTIF(dq_status = 'FAIL') AS open_incidents,
-                MAX(execution_ts) AS last_scan
-            FROM (
-                SELECT *,
-                ROW_NUMBER() OVER (
-                PARTITION BY table_name, rule_name
-                ORDER BY execution_ts DESC
-                ) AS rn
-                FROM `{self.project_id}.{dataset}.dq_watchtower_results`
+    def get_table_columns(self,dataset,table_name):
+
+        table_ref = (
+            f"{self.project_id}."
+            f"{dataset}."
+            f"{table_name}"
+        )
+
+        table = self.client.get_table(
+            table_ref
+        )
+
+        return [
+            field.name
+            for field in table.schema
+        ]
+
+    # def get_dashboard_summary(self, dataset):
+    #     latest_results = self.get_latest_results(dataset)
+
+    #     total_tables = len(
+    #         latest_results
+    #     )
+
+    #     open_incidents = 0
+
+    #     total_rules = 0
+
+    #     passing_rules = 0
+
+    #     latest_scan = None
+
+    #     for table in latest_results:
+
+    #         rules = table.get(
+    #             "rules",
+    #             []
+    #         )
+
+    #         total_rules += len(rules)
+
+    #         for rule in rules:
+
+    #             if (
+    #                 rule["status"]
+    #                 == "failing"
+    #             ):
+
+    #                 open_incidents += 1
+
+    #             else:
+
+    #                 passing_rules += 1
+
+    #         table_scan = table.get(
+    #             "last_scan"
+    #         )
+
+    #         if (
+    #             table_scan and
+    #             (
+    #                 latest_scan is None or
+    #                 table_scan > latest_scan
+    #             )
+    #         ):
+
+    #             latest_scan = table_scan
+
+    #     system_health = (
+    #         round(
+    #             (
+    #                 passing_rules /
+    #                 total_rules
+    #             ) * 100
+    #         )
+    #         if total_rules > 0
+    #         else 0
+    #     )
+    #     latest_results = self.get_latest_results(dataset)
+    #     tables = {}
+
+    #     for row in latest_results:
+
+    #         table_name = row["table_name"]
+
+    #         if table_name not in tables:
+
+    #             tables[table_name] = {
+    #                 "table_name": table_name,
+    #                 "last_scan": row["execution_ts"],
+    #                 "rules": []
+    #             }
+
+    #         tables[table_name]["rules"].append({
+    #             "column": row["column_name"],
+    #             "name": row["rule_name"],
+    #             "status":
+    #                 "failing"
+    #                 if row["dq_status"] == "FAIL"
+    #                 else "passing",
+    #             "violations":
+    #                 row["failed_records"] or 0
+    #         })
+
+    #     return {
+
+    #         "system_health":
+    #             system_health,
+
+    #         "tables_monitored":
+    #             total_tables,
+
+    #         "open_incidents":
+    #             open_incidents,
+
+    #         "last_scan":
+    #             latest_scan,
+
+    #         "tables":
+    #             latest_results
+    #     }
+
+    def get_dashboard_summary(self,dataset):
+
+            latest_results = self.get_latest_results(
+                dataset
             )
-            WHERE rn = 1
-            """
+            all_tables =self.get_dataset_tables(dataset)
 
-        results = list(self.client.query(query).result())
+            open_incidents = 0
 
-        if not results:
-            return {}
+            total_rules = 0
 
-        row = results[0]
+            passing_rules = 0
 
-        return {
-            "system_health": row["system_health"],
-            "tables_monitored": row["tables_monitored"],
-            "open_incidents": row["open_incidents"],
-            "last_scan": str(row["last_scan"])
-        }
+            latest_scan = None
+
+            for table in latest_results:
+
+                rules = table.get(
+                    "rules",
+                    []
+                )
+
+                total_rules += len(
+                    rules
+                )
+
+                for rule in rules:
+
+                    if (
+                        rule["status"]
+                        == "failing"
+                    ):
+
+                        open_incidents += 1
+
+                    else:
+
+                        passing_rules += 1
+
+                table_scan = table.get(
+                    "last_scan"
+                )
+
+                if (
+                    table_scan and
+                    (
+                        latest_scan is None or
+                        table_scan > latest_scan
+                    )
+                ):
+
+                    latest_scan = table_scan
+
+                if not table.get(
+                    "columns"
+                ):
+
+                    table["columns"] = (
+                        self.get_table_columns(
+                            dataset,
+                            table["table_name"]
+                        )
+                    )
+
+            system_health = (
+                round(
+                    (
+                        passing_rules /
+                        total_rules
+                    ) * 100
+                )
+                if total_rules > 0
+                else 0
+            )
+
+            return {
+
+                "system_health":
+                    system_health,
+
+                "tables_monitored":
+                    len(
+                        latest_results
+                    ),
+
+                "open_incidents":
+                    open_incidents,
+
+                "last_scan":
+                    latest_scan,
+
+                "tables": [
+
+                    next(
+
+                        (
+                            t for t in latest_results
+                            if t["table_name"] == table_name
+                        ),
+
+                        {
+
+                            "table_name":
+                                table_name,
+
+                            "rules":
+                                [],
+
+                            "last_scan":
+                                None,
+
+                            "rows":
+                                0,
+
+                            "columns":
+                                []
+                        }
+                    )
+
+                    for table_name in all_tables
+                ]
+            }
+
+
 
     def get_table_details(self,dataset,table_name):
         query = f"""
@@ -312,6 +558,29 @@ class BigQueryAdapter:
         }
 
 
+    def get_dataset_tables(self,dataset):
+        query = f"""
+            SELECT
+                table_name
+            FROM
+                `dq-universal-framework.{dataset}.INFORMATION_SCHEMA.TABLES`
+            """
+
+        results = self.client.query(
+            query
+        ).result()
+
+        tables = []
+
+        for row in results:
+
+            tables.append(
+                row["table_name"]
+            )
+
+        return tables
+
+
     def save_results_to_bq(self, results, results_table_path: str, full_target_table_name: str):
         """
         Updates the Watchtower historical records dataset, ensuring historical 
@@ -348,3 +617,5 @@ class BigQueryAdapter:
         
         if errors:
             raise Exception(f"Failed to stream audit snapshots into Watchtower log: {errors}")
+
+    

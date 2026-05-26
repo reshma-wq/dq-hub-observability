@@ -486,6 +486,8 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 // ─────────────────────────────────────────────────────────────
 
 const state = {
+  scanRunning: false,
+  activeScanRequest: false,
   view: 'overview',
   currentTable: null,
   currentIncident: null,
@@ -504,101 +506,12 @@ const state = {
   incidentStatus: 'Open',
   incidentAssignee: 'unassigned',
   recentlyAddedRuleId: null,
-  tables: {
-    product_catalog: {
-      schema: 'thd_bronze',
-      rows: 12847,
-      lastScan: '2m ago',
-      lastScanFailed: false,
-      columns: ['sku','product_name','category','price','stock_quantity','supplier_id','last_updated'],
-      baselines: [
-        {name:'Schema',detail:'stable',status:'passing'},
-        {name:'Freshness',detail:'within 24h',status:'passing'},
-        {name:'Row volume',detail:'within ±20% of baseline',status:'passing'},
-      ],
-      rules: [
-        {id:'pc1',column:'category',name:'category_valid_values',status:'failing',violations:4,
-         description:"category must be one of Tools, Outdoor, Garden, Home, Hardware",
-         sql:"SELECT * FROM thd_bronze.product_catalog\nWHERE category NOT IN ('Tools','Outdoor','Garden','Home','Hardware')",
-         failingRows:[
-           {sku:'SKU-1042',category:'"Outdoor "',price:'89.00',last_updated:'2m ago'},
-           {sku:'SKU-2017',category:'"outdoor"',price:'12.99',last_updated:'2m ago'},
-           {sku:'SKU-3088',category:'"Garden Tools"',price:'45.00',last_updated:'2m ago'},
-           {sku:'SKU-4011',category:'NULL',price:'22.50',last_updated:'2m ago'},
-         ]},
-        {id:'pc2',column:'sku',name:'sku_unique_and_not_empty',status:'failing',violations:1,
-         description:'SKU must be unique and not empty',
-         sql:"SELECT sku FROM thd_bronze.product_catalog\nWHERE sku IS NULL OR TRIM(sku)=''\nGROUP BY sku HAVING COUNT(*)>1"},
-        {id:'pc3',column:'price',name:'price_positive',status:'failing',violations:1,
-         description:'price must be a positive number',
-         sql:"SELECT * FROM thd_bronze.product_catalog\nWHERE price IS NULL OR price <= 0"},
-        {id:'pc4',column:'supplier_id',name:'supplier_id_not_null_or_empty',status:'failing',violations:1,
-         description:'supplier_id must not be null or empty',
-         sql:"SELECT * FROM thd_bronze.product_catalog\nWHERE supplier_id IS NULL OR TRIM(supplier_id)=''"},
-        {id:'pc5',column:'product_name',name:'product_name_not_null_or_empty',status:'passing',violations:0,
-         description:'product_name must not be null or empty',
-         sql:"SELECT * FROM thd_bronze.product_catalog\nWHERE product_name IS NULL OR TRIM(product_name)=''"},
-        {id:'pc6',column:'stock_quantity',name:'stock_quantity_non_negative',status:'passing',violations:0,
-         description:'stock_quantity must be greater than or equal to 0',
-         sql:"SELECT * FROM thd_bronze.product_catalog\nWHERE stock_quantity < 0"},
-        {id:'pc7',column:'last_updated',name:'last_updated_not_in_future',status:'passing',violations:0,
-         description:'last_updated must not be in the future',
-         sql:"SELECT * FROM thd_bronze.product_catalog\nWHERE last_updated > CURRENT_TIMESTAMP()"},
-      ],
-      aiSuggestions: [
-        {id:'pcai1',column:'price',name:'price_within_range',description:'price between 0.01 and 9999',
-         sql:"WHERE price < 0.01 OR price > 9999"},
-        {id:'pcai2',column:'sku',name:'sku_format_valid',description:'matches SKU-#### pattern',
-         sql:"WHERE NOT REGEXP_CONTAINS(sku, r'^SKU-[0-9]+$')"},
-        {id:'pcai3',column:'category',name:'category_completeness',description:'no null categories above 95%',
-         sql:"WHERE category IS NULL"},
-      ],
-    },
-    marketing_campaigns: {
-      schema: 'thd_bronze',
-      rows: 8402,
-      lastScan: '2m ago',
-      lastScanFailed: false,
-      columns: ['campaign_id','campaign_name','start_date','end_date','budget','ingestion_ts'],
-      baselines: [
-        {name:'Schema',detail:'stable',status:'passing'},
-        {name:'Freshness',detail:'within 24h',status:'passing'},
-        {name:'Row volume',detail:'within ±20% of baseline',status:'passing'},
-      ],
-      rules: [
-        {id:'mc1',column:'campaign_id',name:'campaign_id_not_null',status:'passing',violations:0,
-         description:'campaign_id is the primary key and must never be null',
-         sql:"SELECT * FROM thd_bronze.marketing_campaigns\nWHERE campaign_id IS NULL"},
-        {id:'mc2',column:'campaign_id',name:'campaign_id_not_null_or_empty',status:'passing',violations:0,
-         description:'campaign_id must be provided and not whitespace',
-         sql:"SELECT * FROM thd_bronze.marketing_campaigns\nWHERE campaign_id IS NULL OR TRIM(campaign_id)=''"},
-        {id:'mc3',column:'ingestion_timestamp',name:'data_freshness_ingestion_24h',status:'broken',violations:0,
-         description:'ingested within the last 24 hours',
-         sql:"SELECT * FROM thd_bronze.marketing_campaigns\nWHERE ingestion_timestamp < CURRENT_TIMESTAMP() - INTERVAL '24' HOUR",
-         error:"Column 'ingestion_timestamp' not found in marketing_campaigns"},
-      ],
-      aiSuggestions: [
-        {id:'mcai1',column:'budget',name:'budget_positive',description:'budget must be greater than 0',
-         sql:"WHERE budget IS NULL OR budget <= 0"},
-        {id:'mcai2',column:'end_date',name:'end_after_start',description:'end_date must be after start_date',
-         sql:"WHERE end_date <= start_date"},
-      ],
-    },
-    sales_transactions: {
-      schema: 'thd_bronze',
-      rows: 0,
-      lastScan: null,
-      lastScanFailed: false,
-      columns: ['transaction_id','customer_id','product_sku','amount','transaction_ts'],
-      baselines: [
-        {name:'Schema',detail:'awaiting first scan',status:'pending'},
-        {name:'Freshness',detail:'awaiting first scan',status:'pending'},
-        {name:'Row volume',detail:'awaiting first scan',status:'pending'},
-      ],
-      rules: [],
-      aiSuggestions: [],
-    },
-  },
+  dashboardSummary: {
+    system_health: 0,
+    tables_monitored: 0,
+    open_incidents: 0,
+    last_scan: "--"},
+  tables: {},
   ruleTypes: [
     {v:'not_null',l:'Not null'},
     {v:'unique',l:'Unique'},
@@ -608,7 +521,7 @@ const state = {
     {v:'pattern',l:'Matches pattern'},
     {v:'custom',l:'Custom SQL'},
   ],
-};
+}
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
@@ -623,12 +536,27 @@ function currentRule() {
   if (!t || !state.currentIncident) return null;
   return t.rules.find(r => r.id === state.currentIncident);
 }
-function tableStatus(t) {
-  if (t.rules.length === 0) return 'empty';
-  if (t.lastScanFailed) return 'error';
-  if (t.rules.some(r => r.status === 'failing' || r.status === 'broken')) return 'unhealthy';
-  return 'healthy';
+function tableStatus(table) {
+
+  if (
+    !table.rules ||
+    table.rules.length === 0
+  ) {
+
+    return 'empty';
+  }
+
+  const hasFailing =
+    table.rules.some(
+      r => r.status === 'failing'
+    );
+
+  return hasFailing
+    ? 'unhealthy'
+    : 'healthy';
 }
+
+
 function tableHealth(t) {
   if (t.rules.length === 0) return null;
   if (t.lastScanFailed) return null;
@@ -738,13 +666,186 @@ async function generateAIRules(
   }
 }
 
+async function loadDashboardSummary() {
+
+  try {
+
+    const response =
+      await fetch(
+        "/dashboard/summary"
+      );
+
+    if (!response.ok) {
+
+      throw new Error(
+        "Dashboard API failed"
+      );
+    }
+
+    const data =
+      await response.json();
+
+    // System Health
+    const health =
+      Math.round(
+        data.system_health || 0
+      );
+
+    const healthEl =
+      document.getElementById(
+        "system-health"
+      );
+
+    if (healthEl) {
+
+      healthEl.innerText =
+        health;
+
+      healthEl.style.color =
+        health < 70
+        ? "var(--danger)"
+        : health < 90
+        ? "var(--warning)"
+        : "var(--success)";
+    }
+
+    // Tables Monitored
+    const tablesEl =
+      document.getElementById(
+        "tables-monitored"
+      );
+
+    if (tablesEl) {
+
+      tablesEl.innerText =
+        data.tables_monitored || 0;
+    }
+
+    // Open Incidents
+    const incidentEl =
+      document.getElementById(
+        "open-incidents"
+      );
+
+    if (incidentEl) {
+
+      const incidents =
+        data.open_incidents || 0;
+
+      incidentEl.innerText =
+        incidents;
+
+      incidentEl.style.color =
+        incidents > 0
+        ? "var(--danger)"
+        : "var(--text-primary)";
+    }
+
+    // Last Scan
+    const scanEl =
+      document.getElementById(
+        "last-scan"
+      );
+
+    if (scanEl) {
+
+        const scanDate =
+          new Date(
+            data.last_scan
+          );
+
+        const now =
+          new Date();
+
+        const diffMins =
+          Math.floor(
+            (now - scanDate) / 60000
+          );
+
+        const scanUnitEl =
+          document.getElementById(
+            "last-scan-unit"
+          );
+
+        if (isNaN(diffMins)) {
+
+          scanEl.innerText = "--";
+
+          if (scanUnitEl) {
+
+            scanUnitEl.innerText = "";
+          }
+
+        } else {
+
+          scanEl.innerText = diffMins;
+
+          if (scanUnitEl) {
+
+            scanUnitEl.innerText = "ago";
+          }
+        }
+    }
+
+    // Dynamic Tables Population
+
+    if (Array.isArray(data.tables)) {
+
+      state.tables = {};
+      console.log(data.tables);
+
+      data.tables.forEach(table => {
+
+        const existingTable = state.tables[table.table_name] || {};
+
+        state.tables[
+          table.table_name
+        ] = {
+
+          schema:
+            existingTable.schema || "thd_bronze",
+
+          rows:
+            existingTable.rows || table.rows || 0,
+
+          last_scan:
+            table.last_scan || "never",
+          lastScan:
+            table.last_scan || "never",
+
+          lastScanFailed: false,
+
+          columns: table.columns || [],
+
+          baselines: existingTable.baselines || [],
+
+          rules:
+            Array.isArray(table.rules)
+            ? table.rules
+            : [],
+
+          aiSuggestions: existingTable.aiSuggestions || []
+
+        };
+      });
+    }
+  } catch (error) {
+
+    console.error(
+      "Dashboard API failed",
+      error
+    );
+  }
+}
+
+
 // async function loadDashboardSummary() {
 
 //   try {
 
 //     const response =
 //       await fetch(
-//         "http://localhost:8000/dashboard/summary"
+//         "/dashboard/summary"
 //       );
 
 //     const data =
@@ -753,7 +854,9 @@ async function generateAIRules(
 //     document.getElementById(
 //       "system-health"
 //     ).innerText =
-//       data.system_health || 0;
+//       Math.round(
+//         data.system_health || 0
+//       );
 
 //     document.getElementById(
 //       "tables-monitored"
@@ -765,10 +868,22 @@ async function generateAIRules(
 //     ).innerText =
 //       data.open_incidents || 0;
 
+//     const scanDate =
+//       new Date(data.last_scan);
+
+//     const now =
+//       new Date();
+
+//     const diffMs =
+//       now - scanDate;
+
+//     const diffMins =
+//       Math.floor(diffMs / 60000);
+
 //     document.getElementById(
 //       "last-scan"
 //     ).innerText =
-//       data.last_scan || "--";
+//       diffMins;
 
 //   } catch (error) {
 
@@ -779,60 +894,71 @@ async function generateAIRules(
 //   }
 // }
 
-async function loadDashboardSummary() {
+function renderOverviewCards() {
 
-  try {
+  const dashboard =
+    state.dashboardSummary;
 
-    const response =
-      await fetch(
-        "dashboard/summary"
-      );
-
-    const data =
-      await response.json();
-
+  const healthEl =
     document.getElementById(
       "system-health"
-    ).innerText =
-      Math.round(
-        data.system_health || 0
-      );
+    );
 
+  if (healthEl) {
+
+    healthEl.innerText =
+      dashboard.system_health;
+  }
+
+  const tablesEl =
     document.getElementById(
       "tables-monitored"
-    ).innerText =
-      data.tables_monitored || 0;
+    );
 
+  if (tablesEl) {
+
+    tablesEl.innerText =
+      dashboard.tables_monitored;
+  }
+
+  const incidentEl =
     document.getElementById(
       "open-incidents"
-    ).innerText =
-      data.open_incidents || 0;
+    );
+
+  if (incidentEl) {
+
+    incidentEl.innerText =
+      dashboard.open_incidents;
+  }
+
+  const lastScanEl =
+    document.getElementById(
+      "last-scan"
+    );
+
+  if (lastScanEl) {
 
     const scanDate =
-      new Date(data.last_scan);
+      new Date(
+        dashboard.last_scan
+      );
 
     const now =
       new Date();
 
-    const diffMs =
-      now - scanDate;
-
     const diffMins =
-      Math.floor(diffMs / 60000);
+      Math.floor(
+        (now - scanDate) / 60000
+      );
 
-    document.getElementById(
-      "last-scan"
-    ).innerText =
-      diffMins;
-
-  } catch (error) {
-
-    console.error(
-      "Dashboard API failed",
-      error
-    );
+    lastScanEl.innerText =
+      isNaN(diffMins)
+        ? "--"
+        : `${diffMins}m`;
   }
 }
+
 
 async function registerSelectedRules(
   tableName
@@ -994,10 +1120,11 @@ function renderTopbar() {
 // ─────────────────────────────────────────────────────────────
 
 function renderOverview() {
-  loadDashboardSummary();
+  // loadDashboardSummary();
   const tables = Object.entries(state.tables);
-  const monitored = tables.filter(([_,t]) => t.rules.length > 0).length;
-  const total = 12;
+  const total =Object.keys(state.tables).length;
+  const monitored =tables.filter(([_, t]) =>Array.isArray(t.rules)).length;
+  const unmonitored =Math.max(total - monitored,0);
   const incidents = [];
   tables.forEach(([tn, t]) => {
     t.rules.forEach(r => {
@@ -1019,39 +1146,162 @@ function renderOverview() {
     <div class="page-head">
       <div>
         <h1>Overview</h1>
-        <div class="sub">Quality health across thd_bronze · ${state.tables.product_catalog.rows.toLocaleString()} rows monitored</div>
+        <div class="sub">Quality health across thd_bronze ·${Object.values(state.tables || {}).reduce((sum, t) => sum + (t.rows || 0), 0).toLocaleString()}
+  rows monitored
+</div>
       </div>
       <div class="actions">
-        <button class="btn"><i class="ti ti-refresh"></i>Refresh</button>
+        <button class="btn" id="refresh-dashboard"><i class="ti ti-refresh"></i>Refresh</button>
         <button class="btn btn-primary" id="run-all"><i class="ti ti-player-play-filled"></i>Run all checks</button>
       </div>
     </div>
 
     <div class="stats">
-    <div class="stat">
-    <div class="stat-label">System health</div>
+
+  <div class="stat">
+
+    <div class="stat-label">
+      System health
+    </div>
+
     <div class="stat-value">
-    <span class="num" style="color:${allTablesHealth < 70 ? 'var(--danger)' : allTablesHealth < 90 ? 'var(--warning)' : 'var(--success)'}">${allTablesHealth}</span>
-    <span class="unit">%</span>
+
+      <span
+        id="system-health"
+        class="num"
+        style="
+          color:
+          ${allTablesHealth < 70
+            ? 'var(--danger)'
+            : allTablesHealth < 90
+            ? 'var(--warning)'
+            : 'var(--success)'
+          }
+        "
+      >
+        ${allTablesHealth}
+      </span>
+
+      <span class="unit">%</span>
+
     </div>
-    <div class="stat-bar"><div class="stat-bar-fill" style="width:${allTablesHealth}%;background:${allTablesHealth < 70 ? 'var(--danger)' : allTablesHealth < 90 ? 'var(--warning)' : 'var(--success)'}"></div></div>
+
+    <div class="stat-bar">
+
+      <div
+        class="stat-bar-fill"
+        style="
+          width:${allTablesHealth}%;
+          background:
+          ${allTablesHealth < 70
+            ? 'var(--danger)'
+            : allTablesHealth < 90
+            ? 'var(--warning)'
+            : 'var(--success)'
+          }
+        "
+      ></div>
+
     </div>
-      <div class="stat">
-      <div class="stat-label">Tables monitored</div>
-      <div class="stat-value"><span id="tables-monitored" class="num">${monitored}</span><span class="unit">of ${total}</span></div>
-      <div class="stat-foot">${total - monitored} unmonitored</div>
-      </div>
-      <div class="stat">
-      <div class="stat-label">Open incidents</div>
-      <div class="stat-value"><span id="open-incidents" class="num" style="color:${incidents.length > 0 ? 'var(--danger)' : 'var(--text-primary)'}">${incidents.length}</span></div>
-      <div class="stat-foot">${incidents.length > 0 ? 'all on product_catalog' : 'no active incidents'}</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Last scan</div>
-        <div class="stat-value"><span class="num">2m</span><span class="unit">ago</span></div>
-        <div class="stat-foot"><span class="live-dot"></span>auto · every 15m</div>
-      </div>
+
+  </div>
+
+  <div class="stat">
+
+    <div class="stat-label">
+      Tables monitored
     </div>
+
+    <div class="stat-value">
+
+      <span
+        id="tables-monitored"
+        class="num"
+      >
+        ${monitored}
+      </span>
+
+      <span class="unit">
+        of ${total}
+      </span>
+
+    </div>
+
+    <div class="stat-foot">
+      ${unmonitored} unmonitored
+    </div>
+
+  </div>
+
+  <div class="stat">
+
+    <div class="stat-label">
+      Open incidents
+    </div>
+
+    <div class="stat-value">
+
+      <span
+        id="open-incidents"
+        class="num"
+        style="
+          color:
+          ${incidents.length > 0
+            ? 'var(--danger)'
+            : 'var(--text-primary)'
+          }
+        "
+      >
+        ${incidents.length}
+      </span>
+
+    </div>
+
+    <div class="stat-foot">
+
+      ${incidents.length > 0
+        ? `${incidents.length} active rule failures`
+        : 'no active incidents'
+      }
+
+    </div>
+
+  </div>
+
+  <div class="stat">
+
+    <div class="stat-label">
+      Last scan
+    </div>
+
+    <div class="stat-value">
+
+      <span
+        id="last-scan"
+        class="num"
+      >
+        --
+      </span
+
+      <span
+        id="last-scan-unit"
+        class="unit"
+      >
+      </span>
+
+    </div>
+
+    <div class="stat-foot">
+
+      <span class="live-dot"></span>
+
+      auto · every 15m
+
+    </div>
+
+  </div>
+
+</div>
 
     <div class="card">
       <div class="card-head">
@@ -1066,11 +1316,12 @@ function renderOverview() {
         ${tables.map(([tn, t]) => {
           const st = tableStatus(t);
           const dot = st === 'unhealthy' ? 'danger' : st === 'healthy' ? 'success' : 'muted';
-          const failing = t.rules.filter(r => r.status === 'failing').length;
+          const rules =Array.isArray(t.rules)? t.rules: [];
+          const failing =rules.filter(r => r.status === 'failing').length;
           const meta = st === 'unhealthy'
-            ? `${t.rules.length} rules · <span class="red">${failing} failing</span> · last scan ${t.lastScan}`
+            ? `${rules.length} rules · <span class="red">${failing} failing</span> · last scan ${t.last_scan || 'never'}`
             : st === 'healthy'
-            ? `${t.rules.length} rules · all passing · last scan ${t.lastScan}`
+            ? `${rules.length} rules · all passing · last scan ${t.last_scan || 'never'}`
             : 'No rules configured yet';
           const pill = st === 'unhealthy'
             ? '<span class="pill pill-danger">Needs attention</span>'
@@ -1093,7 +1344,7 @@ function renderOverview() {
       </div>
 
       <div class="card-foot">
-        <span>9 more tables available in thd_bronze</span>
+        <span>${unmonitored} more tables available in thd_bronze</span>
         <span class="link-accent">Browse <i class="ti ti-chevron-right"></i></span>
       </div>
     </div>
@@ -1117,7 +1368,16 @@ function renderOverview() {
               <div class="row-meta">${table} · ${rule.column}</div>
             </div>
             <span class="pill pill-danger">${rule.violations} ${rule.violations === 1 ? 'row' : 'rows'}</span>
-            <span class="row-meta" style="min-width:60px;text-align:right">2m ago</span>
+            <span class="row-meta" style="min-width:60px;text-align:right">
+                  ${
+                      rule.last_scan
+                      ? new Date(
+                          rule.last_scan
+                        ).toLocaleString()
+                      : 'never'
+                    }
+            </span>
+
             <i class="ti ti-chevron-right chev"></i>
           </div>
         `).join('')
@@ -1126,28 +1386,68 @@ function renderOverview() {
   `;
 
   $$('[data-nav-table]').forEach(el => {
-    el.addEventListener('click', () => {
-      state.currentTable = el.dataset.navTable;
-      state.view = 'table-detail';
-      state.aiExpanded = false;
-      state.aiDismissed = false;
-      render();
-    });
+
+      el.onclick = () => {
+
+        state.currentTable =
+          el.dataset.navTable;
+
+        state.view =
+          'table-detail';
+
+        state.aiExpanded =
+          false;
+
+        state.aiDismissed =
+          false;
+
+        render();
+      };
   });
 
   $$('[data-nav-incident]').forEach(el => {
-    el.addEventListener('click', (e) => {
+
+    el.onclick = (e) => {
+
       e.stopPropagation();
-      state.currentTable = el.dataset.table;
-      state.currentIncident = el.dataset.navIncident;
-      state.view = 'incident-detail';
+
+      state.currentTable =
+        el.dataset.table;
+
+      state.currentIncident =
+        el.dataset.navIncident;
+
+      state.view =
+        'incident-detail';
+
       render();
-    });
+    };
   });
 
-  $('#run-all')?.addEventListener('click', () => {
-    runScan(null);
-  });
+  const runAllBtn =$('#run-all');
+  if (runAllBtn) {
+    runAllBtn.onclick =
+      () => {
+        if (
+          state.scanRunning
+        ) return;
+
+        runScan(null);
+      };
+  }
+
+
+  const refreshBtn =
+    $('#refresh-dashboard');
+
+    if (refreshBtn) {
+
+      refreshBtn.onclick =
+        async () => {
+
+          await refreshDashboard();
+        };
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1231,11 +1531,12 @@ async function renderTableDetail() {
       </div>
       <div class="inline-stat">
         <span class="l">Last scan</span>
-        <span class="v ${st === 'error' ? 'danger' : ''}">${st === 'error' ? 'failed' : (t.lastScan || 'never')}</span>
+        <span class="v ${st === 'error' ? 'danger' : ''}">${st === 'error'? 'failed': (t.lastScan? new Date(t.lastScan).toLocaleString(): 'never')}</span>
       </div>
     </div>
   `;
 
+  //last scan ${t.lastScan? new Date(t.lastScan).toLocaleString(): 'never'}
   const baselineHTML = `
     <div class="section">
       <div class="section-label">Baseline · auto-applied</div>
@@ -1398,100 +1699,285 @@ async function renderTableDetail() {
 
   // Wire events
   $$('[data-switch-table]').forEach(el => {
-    el.addEventListener('click', () => {
-      state.currentTable = el.dataset.switchTable;
+    el.onclick = () => {
+
+      state.currentTable =
+        el.dataset.switchTable;
+
       state.aiExpanded = false;
+
       state.aiDismissed = false;
+
       state.recentlyAddedRuleId = null;
+
       render();
-    });
+    };
   });
 
-  $('#add-rule-btn')?.addEventListener('click', () => openAddRule());
-  $('#empty-manual')?.addEventListener('click', () => openAddRule('custom'));
-  $('#empty-ai')?.addEventListener('click',async () => {
+const addRuleBtn =
+  $('#add-rule-btn');
 
-    await generateAIRules(
-      state.currentTable
-    );
-  }
-);
-  $('#run-scan-btn')?.addEventListener('click', () => runScan(state.currentTable));
+if (addRuleBtn) {
+
+  addRuleBtn.onclick =
+    () => openAddRule();
+}
+
+const emptyManual =
+  $('#empty-manual');
+
+if (emptyManual) {
+
+  emptyManual.onclick =
+    () => openAddRule('custom');
+}
+
+const emptyAi =
+  $('#empty-ai');
+
+if (emptyAi) {
+
+  emptyAi.onclick =
+    async () => {
+
+      await generateAIRules(
+        state.currentTable
+      );
+    };
+}
+
+  const runBtn = $('#run-scan-btn');
+
+    if (runBtn) {
+
+      runBtn.onclick =
+        async () => {
+
+          if (
+            state.activeScanRequest
+          ) {
+
+            return;
+          }
+
+          await runScan(
+            state.currentTable
+          );
+        };
+    }
 
   $$('[data-rule-id]').forEach(el => {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
-      const r = t.rules.find(x => x.id === el.dataset.ruleId);
-      if (r && (r.status === 'failing' || r.status === 'broken' || r.status === 'passing')) {
-        state.currentIncident = r.id;
-        state.view = 'incident-detail';
+
+    el.onclick = (e) => {
+
+      if (
+        e.target.closest('button')
+      ) return;
+
+      const r =
+        t.rules.find(
+          x => x.id === el.dataset.ruleId
+        );
+
+      if (
+        r &&
+        (
+          r.status === 'failing' ||
+          r.status === 'broken' ||
+          r.status === 'passing'
+        )
+      ) {
+
+        state.currentIncident =
+          r.id;
+
+        state.view =
+          'incident-detail';
+
         render();
       }
-    });
+    };
   });
 
   $$('[data-edit-rule]').forEach(el => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openAddRule('custom', el.dataset.editRule);
-    });
-  });
 
-  $$('[data-disable-rule]').forEach(el => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = el.dataset.disableRule;
-      const tbl = currentTable();
-      tbl.rules = tbl.rules.filter(r => r.id !== id);
-      tbl.lastScanFailed = false;
-      showToast('Rule disabled. Run a fresh scan when ready.', 'info');
-      render();
-    });
-  });
+  el.onclick = (e) => {
 
-  $('#ai-expand')?.addEventListener('click', () => { state.aiExpanded = true; render(); });
-  $('#ai-collapse')?.addEventListener('click', () => { state.aiExpanded = false; render(); });
-  $('#ai-dismiss-all')?.addEventListener('click', () => {
-    state.aiDismissed = true;
-    state.aiExpanded = false;
-    state.addRule.aiSelected = [];
-    showToast('AI suggestions dismissed', 'info');
-    render();
-  });
-  $('#ai-regenerate')?.addEventListener('click',async () => {
+    e.stopPropagation();
 
-    await generateAIRules(
-      state.currentTable
+    openAddRule(
+      'custom',
+      el.dataset.editRule
     );
-  }
-);
-  $('#ai-sel-all')?.addEventListener('change', (e) => {
-    const t2 = currentTable();
-    state.addRule.aiSelected = e.target.checked ? t2.aiSuggestions.map(s => s.id) : [];
-    render();
-  });
-  $$('.ai-sel').forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      const id = e.target.dataset.sug;
-      if (e.target.checked) {
-        if (!state.addRule.aiSelected.includes(id)) state.addRule.aiSelected.push(id);
-      } else {
-        state.addRule.aiSelected = state.addRule.aiSelected.filter(x => x !== id);
-      }
-      render();
-    });
-  });
- $('#ai-add-selected')?.addEventListener(
-  'click',
-  async () => {
+  };
+});
 
-    await registerSelectedRules(
-      state.currentTable
+$$('[data-disable-rule]').forEach(el => {
+
+  el.onclick = (e) => {
+
+    e.stopPropagation();
+
+    const id =
+      el.dataset.disableRule;
+
+    const tbl =
+      currentTable();
+
+    tbl.rules =
+      tbl.rules.filter(
+        r => r.id !== id
+      );
+
+    tbl.lastScanFailed =
+      false;
+
+    showToast(
+      'Rule disabled. Run a fresh scan when ready.',
+      'info'
     );
-  }
-);
+
+    render();
+  };
+});
+
+
+const aiExpand =
+  $('#ai-expand');
+
+if (aiExpand) {
+
+  aiExpand.onclick =
+    () => {
+
+      state.aiExpanded =
+        true;
+
+      render();
+    };
 }
 
+const aiCollapse =
+  $('#ai-collapse');
+
+if (aiCollapse) {
+
+  aiCollapse.onclick =
+    () => {
+
+      state.aiExpanded =
+        false;
+
+      render();
+    };
+}
+
+const aiDismissAll =
+  $('#ai-dismiss-all');
+
+if (aiDismissAll) {
+
+  aiDismissAll.onclick =
+    () => {
+
+      state.aiDismissed =
+        true;
+
+      state.aiExpanded =
+        false;
+
+      state.addRule.aiSelected =
+        [];
+
+      showToast(
+        'AI suggestions dismissed',
+        'info'
+      );
+
+      render();
+    };
+}
+
+const aiRegenerate =
+  $('#ai-regenerate');
+
+if (aiRegenerate) {
+
+  aiRegenerate.onclick =
+    async () => {
+
+      await generateAIRules(
+        state.currentTable
+      );
+    };
+}
+
+const aiSelAll =
+  $('#ai-sel-all');
+
+if (aiSelAll) {
+
+  aiSelAll.onchange =
+    (e) => {
+
+      const t2 =
+        currentTable();
+
+      state.addRule.aiSelected =
+        e.target.checked
+        ? t2.aiSuggestions.map(
+            s => s.id
+          )
+        : [];
+
+      render();
+    };
+}
+
+$$('.ai-sel').forEach(cb => {
+
+  cb.onchange = (e) => {
+
+    const id =
+      e.target.dataset.sug;
+
+    if (
+      e.target.checked
+    ) {
+
+      if (
+        !state.addRule.aiSelected.includes(id)
+      ) {
+
+        state.addRule.aiSelected.push(id);
+      }
+
+    } else {
+
+      state.addRule.aiSelected =
+        state.addRule.aiSelected.filter(
+          x => x !== id
+        );
+    }
+
+    render();
+  };
+});
+
+const aiAddSelected =
+  $('#ai-add-selected');
+
+if (aiAddSelected) {
+
+  aiAddSelected.onclick =
+    async () => {
+
+      await registerSelectedRules(
+        state.currentTable
+      );
+    };
+}
+}
 // ─────────────────────────────────────────────────────────────
 // RENDER: INCIDENT DETAIL
 // ─────────────────────────────────────────────────────────────
@@ -1558,10 +2044,11 @@ function renderIncidentDetail() {
     </div>
 
     <div class="inline-stats">
-      <div class="inline-stat"><span class="l">Failing</span><span class="v ${r.violations > 0 ? 'danger' : 'success'}">${r.violations} ${r.violations === 1 ? 'row' : 'rows'}</span></div>
-      <div class="inline-stat"><span class="l">First seen</span><span class="v">2m ago</span></div>
-      <div class="inline-stat"><span class="l">Last checked</span><span class="v">2m ago</span></div>
-      <div class="inline-stat"><span class="l">Rule type</span><span class="v">Allowed values</span></div>
+
+      <div class="inline-stat"><span class="l">Failing</span><span class="v ${r.violations > 0 ? 'danger' : 'success'}">${r.violations}${r.violations === 1 ? 'row' : 'rows'}</span></div>
+      <div class="inline-stat"><span class="l">First seen</span><span class="v">${t.lastScan? new Date(t.lastScan).toLocaleString(): 'never'}</span></div>
+      <div class="inline-stat"><span class="l">Last checked</span><span class="v">${t.lastScan? new Date(t.lastScan).toLocaleString(): 'never'}</span></div>
+      <div class="inline-stat"><span class="l">Rule type</span><span class="v">${r.name || 'Custom'}</span></div>
     </div>
 
     <div class="chart-wrap">
@@ -1811,46 +2298,175 @@ function closePanel() {
 // ACTIONS
 // ─────────────────────────────────────────────────────────────
 
-async function runScan(tableName) {
+
+// async function runScan(tableName) {
+
+//   try {
+
+//     state.scanRunning = true;
+
+//     render();
+
+//     const endpoint =
+//       tableName
+//       ? `/execution/run/${tableName}`
+//       : "/execution/run-all";
+
+//     const response =
+//       await fetch(
+//         endpoint,
+//         {
+//           method: "POST"
+//         }
+//       );
+
+//     if (!response.ok) {
+
+//       throw new Error(
+//         "Scan execution failed"
+//       );
+//     }
+
+//     const data =
+//       await response.json();
+
+//     showToast(
+//       `Scan complete`,
+//       "success"
+//     );
+
+//     // Refresh latest dashboard data
+
+//     await loadDashboardSummary();
+
+//     // If specific table scanned,
+//     // refresh detail screen also
+
+//     if (
+//       tableName &&
+//       state.tables[tableName]
+//     ) {
+
+//       const dashboardResponse =
+//         await fetch(
+//           `/dashboard/table/${tableName}`
+//         );
+
+//       if (
+//         dashboardResponse.ok
+//       ) {
+
+//         const tableData =
+//           await dashboardResponse.json();
+
+//         state.tables[
+//           tableName
+//         ].rules =
+//           tableData.rules || [];
+
+//         state.tables[
+//           tableName
+//         ].lastScan =
+//           tableData.last_scan || "never";
+
+//         state.tables[
+//           tableName
+//         ].columns =
+//           tableData.columns || [];
+//       }
+//     }
+
+//   } catch (error) {
+
+//     console.error(
+//       error
+//     );
+
+//     showToast(
+//       "Scan failed",
+//       "error"
+//     );
+
+//   } finally {
+
+//     state.scanRunning = false;
+
+//     render();
+//   }
+// }
+
+async function runScan(
+  tableName
+) {
+
+  // HARD LOCK
+
+  if (
+    state.activeScanRequest
+  ) {
+
+    console.log(
+      "Scan already running"
+    );
+
+    return;
+  }
 
   try {
+
+    state.activeScanRequest = true;
 
     state.scanRunning = true;
 
     render();
 
-    const response = await fetch(
-      `/execution/run/${tableName}`,
-      {
-        method: "POST"
-      }
+    const endpoint =
+      tableName
+      ? `/execution/run/${tableName}`
+      : `/execution/run-all`;
+
+    console.log(
+      "Starting scan:",
+      endpoint
     );
+
+    const response =
+      await fetch(
+        endpoint,
+        {
+          method: "POST"
+        }
+      );
+
+    if (!response.ok) {
+
+      throw new Error(
+        `HTTP ${response.status}`
+      );
+    }
 
     const data =
       await response.json();
 
+    console.log(
+      "Scan completed:",
+      data
+    );
+
     showToast(
-      `Scan complete: ${data.status}`,
+      "Scan completed",
       "success"
     );
 
-    const dashboardResponse =
-      await fetch(
-        `/dashboard/table/${tableName}`
-      );
+    // Refresh latest dashboard state
 
-    const tableData =
-      await dashboardResponse.json();
-
-    state.tables[tableName].rules =
-      tableData.rules || [];
-
-    state.tables[tableName].lastScan =
-      "just now";
+    await refreshDashboard();
 
   } catch (error) {
 
-    console.error(error);
+    console.error(
+      error
+    );
 
     showToast(
       "Scan failed",
@@ -1861,10 +2477,24 @@ async function runScan(tableName) {
 
     state.scanRunning = false;
 
+    state.activeScanRequest = false;
+
     render();
   }
 }
 
+
+async function refreshDashboard() {
+
+  await loadDashboardSummary();
+
+  render();
+
+  showToast(
+    "Dashboard refreshed",
+    "success"
+  );
+}
 
 // ─────────────────────────────────────────────────────────────
 // MASTER RENDER
@@ -1888,7 +2518,9 @@ document.addEventListener('keydown', (e) => {
 });
 $('#panel-backdrop').addEventListener('click', closePanel);
 
-render();
+loadDashboardSummary().then(() => {
+  render();
+});
 </script>
 
 </body>

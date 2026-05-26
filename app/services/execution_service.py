@@ -38,81 +38,109 @@ class ExecutionService:
             }
         )
 
+        failed_rules = 0
         completed = 0
 
         print("ENTERING LOOP")
         for rule in rules:
-            print("RUNNING RULE")
-            print(rule)
+            for rule in rules:
 
-            start_time = time.time()
+                try:
+                    print("RUNNING RULE")
+                    print(rule)
 
-            result = self.bq.execute_rule_sql(
-                rule.compiled_sql
-            )
+                    start_time = time.time()
 
-            execution_time_ms = int(
-                (time.time() - start_time) * 1000
-            )
+                    result = self.bq.execute_rule_sql(
+                        rule.compiled_sql
+                    )
 
-            total_records = result["total_records"]
+                    execution_time_ms = int(
+                        (
+                            time.time() -
+                            start_time
+                        ) * 1000
+                    )
 
-            failed_records = result["failed_records"]
+                    total_records = result.get(
+                        "total_records",
+                        0
+                    )
 
-            passed_records = (
-                total_records -
-                failed_records
-            )
+                    failed_records = result.get(
+                        "failed_records",
+                        0
+                    )
 
-            pass_percentage = (
-                passed_records /
-                total_records
-            ) * 100 if total_records > 0 else 0
+                    passed_records = (
+                        total_records -
+                        failed_records
+                    )
 
-            print("INSERT FUNCTION CALLING")
-            self.bq.insert_watchtower_result(
-                TARGET_DATASET,
-                {
-                    "execution_ts":
-                        datetime.utcnow().isoformat(),
+                    pass_percentage = (
+                        (
+                            passed_records /
+                            total_records
+                        ) * 100
+                    ) if total_records > 0 else 0
 
-                    "run_id":
-                        run_id,
+                    self.bq.insert_watchtower_result(
+                        TARGET_DATASET,
+                        {
 
-                    "table_name":
-                        table_name,
+                            "execution_ts":
+                                datetime.utcnow().isoformat(),
 
-                    "column_name":
-                        rule.column_name,
+                            "run_id":
+                                run_id,
 
-                    "rule_name":
-                        rule.rule_name,
+                            "table_name":
+                                rule.table_name,
 
-                    "total_records":
-                        total_records,
+                            "column_name":
+                                rule.column_name,
 
-                    "passed_records":
-                        passed_records,
+                            "rule_name":
+                                rule.rule_name,
 
-                    "failed_records":
-                        failed_records,
+                            "total_records":
+                                total_records,
 
-                    "pass_percentage":
-                        pass_percentage,
+                            "passed_records":
+                                passed_records,
 
-                    "execution_time_ms":
-                        execution_time_ms,
+                            "failed_records":
+                                failed_records,
 
-                    "execution_status":
-                        "SUCCESS",
+                            "pass_percentage":
+                                pass_percentage,
 
-                    "dq_status":
-                        "FAIL" if failed_records > 0 else "PASS"
-                }
-            )
+                            "execution_time_ms":
+                                execution_time_ms,
 
-            completed += 1
+                            "execution_status":
+                                "SUCCESS",
 
+                            "dq_status":
+                                (
+                                    "FAIL"
+                                    if failed_records > 0
+                                    else "PASS"
+                                )
+                        }
+                    )
+
+                    completed += 1
+
+                except Exception as e:
+
+                    failed_rules += 1
+
+                    print(
+                        "RULE FAILED"
+                    )
+
+                    print(e)
             # self.bq.update_execution_progress(
             #     TARGET_DATASET,
             #     run_id,
