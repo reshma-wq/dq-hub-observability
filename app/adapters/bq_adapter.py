@@ -1,4 +1,7 @@
 from google.cloud import bigquery
+import re
+
+from app.utils.config import TARGET_DATASET
 
 class BigQueryAdapter:
     def __init__(self, project_id: str):
@@ -67,6 +70,39 @@ class BigQueryAdapter:
             self.client.query(query).result()
         )
 
+    def qualify_table_references(self, sql):
+
+        pattern = r'FROM\\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+
+        matches = re.findall(
+            pattern,
+            sql,
+            flags=re.IGNORECASE
+        )
+
+        for table_name in matches:
+
+            if "." not in table_name and "`" not in table_name:
+
+                qualified_table = (
+                    f"`{self.project_id}."
+                    f"{TARGET_DATASET}."
+                    f"{table_name}`"
+                )
+
+                sql = re.sub(
+
+                    rf'FROM\\s+{table_name}\\b',
+
+                    f"FROM {qualified_table}",
+
+                    sql,
+
+                    flags=re.IGNORECASE
+                )
+
+        return sql
+
     def create_execution_run(self, dataset, run_record):
 
         table_id = f"{self.project_id}.{dataset}.dq_execution_runs"
@@ -117,9 +153,20 @@ class BigQueryAdapter:
 
     def execute_rule_sql(self, sql):
 
-        query_job = self.client.query(sql)
+        sql = self.qualify_table_references(
+            sql
+        )
 
-        results = list(query_job.result())
+        print("FINAL SQL")
+        print(sql)
+
+        query_job = self.client.query(
+            sql
+        )
+
+        results = list(
+            query_job.result()
+        )
 
         if not results:
 
@@ -131,8 +178,11 @@ class BigQueryAdapter:
         row = results[0]
 
         return {
-            "total_records": row["total_records"],
-            "failed_records": row["failed_records"]
+            "total_records":
+                row["total_records"],
+
+            "failed_records":
+                row["failed_records"]
         }    
 
     def update_execution_progress(self,dataset,run_id,completed_rules):

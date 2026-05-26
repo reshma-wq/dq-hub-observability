@@ -15,37 +15,41 @@ class ExecutionService:
 
     def run_checks(self, table_name):
 
-        run_id = str(uuid.uuid4())
+            run_id = str(uuid.uuid4())
 
-        #rules = self.bq.get_registered_rules(dataset,table_name)
-        rules = self.bq.get_registered_rules(TARGET_DATASET,table_name)
-        print("RULES FETCHED")
-        print(rules)
-        print(len(rules))
+            rules = self.bq.get_registered_rules(
+                TARGET_DATASET,
+                table_name
+            )
 
-        total_rules = len(rules)
+            print("RULES FETCHED")
+            print(rules)
+            print(len(rules))
 
-        self.bq.create_execution_run(
-            TARGET_DATASET,
-            {
-                "run_id": run_id,
-                "table_name": table_name,
-                "total_rules": total_rules,
-                "completed_rules": 0,
-                "status": "RUNNING",
-                "started_at": datetime.utcnow().isoformat(),
-                "completed_at": None
-            }
-        )
+            total_rules = len(rules)
 
-        failed_rules = 0
-        completed = 0
+            self.bq.create_execution_run(
+                TARGET_DATASET,
+                {
+                    "run_id": run_id,
+                    "table_name": table_name,
+                    "total_rules": total_rules,
+                    "completed_rules": 0,
+                    "status": "RUNNING",
+                    "started_at": datetime.utcnow().isoformat(),
+                    "completed_at": None
+                }
+            )
 
-        print("ENTERING LOOP")
-        for rule in rules:
+            failed_rules = 0
+            completed = 0
+
+            print("ENTERING LOOP")
+
             for rule in rules:
 
                 try:
+
                     print("RUNNING RULE")
                     print(rule)
 
@@ -132,30 +136,26 @@ class ExecutionService:
 
                     completed += 1
 
+                    print("INSERT SUCCESS")
+
                 except Exception as e:
 
                     failed_rules += 1
 
-                    print(
-                        "RULE FAILED"
-                    )
+                    print("RULE FAILED")
+                    print(str(e))
 
-                    print(e)
-            # self.bq.update_execution_progress(
-            #     TARGET_DATASET,
-            #     run_id,
-            #     completed
-            # )
+                    continue
 
-        # self.bq.complete_execution_run(
-        #     TARGET_DATASET,
-        #     run_id
-        # )
+            print("EXECUTION COMPLETED")
 
-        return {
-            "run_id": run_id,
-            "status": "started"
-        }
+            return {
+                "run_id": run_id,
+                "status": "started",
+                "total_rules": total_rules,
+                "completed_rules": completed,
+                "failed_rules": failed_rules
+            }
 
     def get_status(self, run_id):
 
