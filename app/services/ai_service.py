@@ -10,20 +10,32 @@ from app.utils.config import (
     TARGET_DATASET
 )
 
-# Initialize Vertex AI
-vertexai.init(
-    project=PROJECT_ID,
-    location=LOCATION
-)
+# # Initialize Vertex AI
+# vertexai.init(
+#     project=PROJECT_ID,
+#     location=LOCATION
+# )
 
-# Gemini model
-model = GenerativeModel("gemini-2.5-flash")
+# # Gemini model
+# model = GenerativeModel("gemini-2.5-flash")
 
 
 class AIService:
 
     def __init__(self):
-        self.bq = BigQueryAdapter(PROJECT_ID)
+
+        self.bq = BigQueryAdapter(
+            PROJECT_ID
+        )
+
+        vertexai.init(
+            project=PROJECT_ID,
+            location=LOCATION
+        )
+
+        self.model = GenerativeModel(
+            "gemini-2.5-flash"
+        )
 
     def generate_rules(self, table_name):
 
@@ -205,7 +217,7 @@ Return raw JSON only.
 """
 
         # Generate AI response
-        response = model.generate_content(
+        response = self.model.generate_content(
             prompt
         )
 
@@ -223,9 +235,21 @@ Return raw JSON only.
 
         # Convert to Python JSON
 
-        rules = json.loads(
-            raw_text
-        )
+        try:
+
+            rules = json.loads(
+                raw_text
+            )
+
+        except Exception:
+
+            print(
+                "RAW GEMINI RESPONSE"
+            )
+
+            print(raw_text)
+
+            raise
 
         # Validate generated SQL
 
