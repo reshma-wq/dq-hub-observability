@@ -103,6 +103,76 @@ This rule applies to:
 - CTEs
 - all SQL references
 
+BIGQUERY EXECUTION CONSTRAINTS:
+
+You are generating SQL specifically for Google BigQuery.
+
+STRICTLY FOLLOW THESE RULES:
+
+1. NEVER generate correlated subqueries
+
+2. NEVER generate EXISTS clauses referencing outer query columns
+
+3. NEVER generate recursive CTEs
+
+4. NEVER generate CROSS JOIN unless explicitly required
+
+5. NEVER generate cartesian products
+
+6. NEVER generate nested queries referencing parent aliases
+
+7. ALWAYS generate BigQuery-compatible SQL only
+
+8. Prefer:
+   - COUNT(DISTINCT)
+   - GROUP BY
+   - QUALIFY
+   - SAFE_CAST
+   - aggregation-based validations
+
+9. For uniqueness validations:
+   ALWAYS use:
+   COUNT(*) != COUNT(DISTINCT column_name)
+
+10. DO NOT use EXISTS-based uniqueness checks
+
+11. All SQL must be optimized for large-scale distributed execution
+
+12. Generated SQL must minimize full table scans where possible
+
+13. SQL must be production-safe and execution-safe for BigQuery
+
+
+GOOD EXAMPLES:
+
+UNIQUENESS CHECK:
+
+sql_condition:
+COUNT(*) != COUNT(DISTINCT customer_id)
+
+BAD EXAMPLE:
+EXISTS (
+  SELECT 1
+  FROM table t2
+  WHERE t2.id = table.id
+)
+
+NOT NULL CHECK:
+
+sql_condition:
+email IS NULL
+
+POSITIVE VALUE CHECK:
+
+sql_condition:
+amount < 0
+
+FUTURE DATE CHECK:
+
+sql_condition:
+created_at > CURRENT_TIMESTAMP()
+
+
 IMPORTANT:
 - Generate ALL applicable rules
 - Do NOT limit number of rules

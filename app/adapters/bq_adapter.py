@@ -317,111 +317,6 @@ class BigQueryAdapter:
             for field in table.schema
         ]
 
-    # def get_dashboard_summary(self, dataset):
-    #     latest_results = self.get_latest_results(dataset)
-
-    #     total_tables = len(
-    #         latest_results
-    #     )
-
-    #     open_incidents = 0
-
-    #     total_rules = 0
-
-    #     passing_rules = 0
-
-    #     latest_scan = None
-
-    #     for table in latest_results:
-
-    #         rules = table.get(
-    #             "rules",
-    #             []
-    #         )
-
-    #         total_rules += len(rules)
-
-    #         for rule in rules:
-
-    #             if (
-    #                 rule["status"]
-    #                 == "failing"
-    #             ):
-
-    #                 open_incidents += 1
-
-    #             else:
-
-    #                 passing_rules += 1
-
-    #         table_scan = table.get(
-    #             "last_scan"
-    #         )
-
-    #         if (
-    #             table_scan and
-    #             (
-    #                 latest_scan is None or
-    #                 table_scan > latest_scan
-    #             )
-    #         ):
-
-    #             latest_scan = table_scan
-
-    #     system_health = (
-    #         round(
-    #             (
-    #                 passing_rules /
-    #                 total_rules
-    #             ) * 100
-    #         )
-    #         if total_rules > 0
-    #         else 0
-    #     )
-    #     latest_results = self.get_latest_results(dataset)
-    #     tables = {}
-
-    #     for row in latest_results:
-
-    #         table_name = row["table_name"]
-
-    #         if table_name not in tables:
-
-    #             tables[table_name] = {
-    #                 "table_name": table_name,
-    #                 "last_scan": row["execution_ts"],
-    #                 "rules": []
-    #             }
-
-    #         tables[table_name]["rules"].append({
-    #             "column": row["column_name"],
-    #             "name": row["rule_name"],
-    #             "status":
-    #                 "failing"
-    #                 if row["dq_status"] == "FAIL"
-    #                 else "passing",
-    #             "violations":
-    #                 row["failed_records"] or 0
-    #         })
-
-    #     return {
-
-    #         "system_health":
-    #             system_health,
-
-    #         "tables_monitored":
-    #             total_tables,
-
-    #         "open_incidents":
-    #             open_incidents,
-
-    #         "last_scan":
-    #             latest_scan,
-
-    #         "tables":
-    #             latest_results
-    #     }
-
     def get_dashboard_summary(self,dataset):
 
             latest_results = self.get_latest_results(
@@ -545,8 +440,6 @@ class BigQueryAdapter:
                 ]
             }
 
-
-
     def get_table_details(self,dataset,table_name):
         query = f"""
         SELECT
@@ -608,7 +501,30 @@ class BigQueryAdapter:
         }
 
 
-    def get_dataset_tables(self,dataset):
+    # def get_dataset_tables(self,dataset):
+    #     query = f"""
+    #         SELECT
+    #             table_name
+    #         FROM
+    #             `dq-universal-framework.{dataset}.INFORMATION_SCHEMA.TABLES`
+    #         """
+
+    #     results = self.client.query(
+    #         query
+    #     ).result()
+
+    #     tables = []
+
+    #     for row in results:
+
+    #         tables.append(
+    #             row["table_name"]
+    #         )
+
+    #     return tables
+
+    def get_dataset_tables(self, dataset):
+
         query = f"""
             SELECT
                 table_name
@@ -624,12 +540,19 @@ class BigQueryAdapter:
 
         for row in results:
 
+            table_name = row["table_name"]
+
+            if table_name.startswith(
+                "dq_"
+            ):
+
+                continue
+
             tables.append(
-                row["table_name"]
+                table_name
             )
 
         return tables
-
 
     def save_results_to_bq(self, results, results_table_path: str, full_target_table_name: str):
         """
