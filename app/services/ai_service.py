@@ -1,13 +1,12 @@
 import json
-import vertexai
-
-from vertexai.generative_models import GenerativeModel
+from google import genai
 
 from app.adapters.bq_adapter import BigQueryAdapter
 from app.utils.config import (
     PROJECT_ID,
     LOCATION,
-    TARGET_DATASET
+    TARGET_DATASET,
+    MODEL_NAME
 )
 
 # # Initialize Vertex AI
@@ -28,13 +27,14 @@ class AIService:
             PROJECT_ID
         )
 
-        vertexai.init(
+        self.client = genai.Client(
+            vertexai=True,
             project=PROJECT_ID,
-            location=LOCATION
+            location="global"
         )
 
-        self.model = GenerativeModel(
-            "gemini-2.5-flash"
+        print(
+            f"Using model: {MODEL_NAME}"
         )
 
     def generate_rules(self, table_name):
@@ -217,9 +217,7 @@ Return raw JSON only.
 """
 
         # Generate AI response
-        response = self.model.generate_content(
-            prompt
-        )
+        response = self.client.models.generate_content(model=MODEL_NAME,contents=prompt)
 
         raw_text = response.text.strip()
 
