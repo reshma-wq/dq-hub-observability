@@ -265,9 +265,12 @@ Return raw JSON only.
                 and full_table_name not in sql_condition
             ):
 
-                raise Exception(
-                    f"Invalid SQL generated for rule: "
-                    f"{rule.get('rule_name')}"
-                )
+                print("RULE NAME")
+                print(rule.get("rule_name"))
+                print("SQL CONDITION")
+                print(sql_condition)
+
+                print(f"Skipping invalid rule: "f"{rule.get('rule_name')}")
+                continue
 
         return rules
