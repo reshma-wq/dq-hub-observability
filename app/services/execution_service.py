@@ -11,14 +11,14 @@ class ExecutionService:
     def __init__(self):
 
         self.bq = BigQueryAdapter(PROJECT_ID)
-        TARGET_DATASET = "thd_bronze"
+        self.target_dataset = TARGET_DATASET
 
     def run_checks(self, table_name):
 
             run_id = str(uuid.uuid4())
 
             rules = self.bq.get_registered_rules(
-                TARGET_DATASET,
+                self.target_dataset,
                 table_name
             )
 
@@ -29,7 +29,7 @@ class ExecutionService:
             total_rules = len(rules)
 
             self.bq.create_execution_run(
-                TARGET_DATASET,
+                self.target_dataset,
                 {
                     "run_id": run_id,
                     "table_name": table_name,
@@ -89,7 +89,7 @@ class ExecutionService:
                     ) if total_records > 0 else 0
 
                     self.bq.insert_watchtower_result(
-                        TARGET_DATASET,
+                        self.target_dataset,
                         {
 
                             "execution_ts":
@@ -160,6 +160,6 @@ class ExecutionService:
     def get_status(self, run_id):
 
         return self.bq.get_execution_status(
-            TARGET_DATASET,
+            self.target_dataset,
             run_id
         )

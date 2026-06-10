@@ -301,21 +301,24 @@ class BigQueryAdapter:
         )
 
     def get_table_columns(self,dataset,table_name):
+        try:
+            table_ref = (
+                f"{self.project_id}."
+                f"{dataset}."
+                f"{table_name}"
+            )
 
-        table_ref = (
-            f"{self.project_id}."
-            f"{dataset}."
-            f"{table_name}"
-        )
+            table = self.client.get_table(
+                table_ref
+            )
 
-        table = self.client.get_table(
-            table_ref
-        )
-
-        return [
-            field.name
-            for field in table.schema
-        ]
+            return [
+                field.name
+                for field in table.schema
+            ]
+        except Exception as e:
+            # Return empty list if permission denied
+            return []
 
     def get_dashboard_summary(self,dataset):
 
@@ -524,35 +527,40 @@ class BigQueryAdapter:
     #     return tables
 
     def get_dataset_tables(self, dataset):
+        try:
+            query = f"""
+                SELECT
+                    table_name
+                FROM
+                    `{self.project_id}.{dataset}.INFORMATION_SCHEMA.TABLES`
+                """
 
-        query = f"""
-            SELECT
-                table_name
-            FROM
-                `dq-universal-framework.{dataset}.INFORMATION_SCHEMA.TABLES`
-            """
+            results = self.client.query(
+                query
+            ).result()
 
-        results = self.client.query(
-            query
-        ).result()
+            tables = []
 
-        tables = []
+            for row in results:
 
-        for row in results:
+                table_name = row["table_name"]
 
-            table_name = row["table_name"]
+                if table_name.startswith(
+                    "dq_"
+                ):
 
-            if table_name.startswith(
-                "dq_"
-            ):
+                    continue
 
-                continue
+                tables.append(
+                    table_name
+                )
 
-            tables.append(
-                table_name
-            )
-
-        return tables
+            return tables
+        except Exception as e:
+            # Permission denied or table not found - return empty list
+            import logging
+            logging.error(f"get_dataset_tables error: {str(e)}")
+            return []
 
     def save_results_to_bq(self, results, results_table_path: str, full_target_table_name: str):
         """

@@ -27,6 +27,10 @@ class AIService:
         self.bq = BigQueryAdapter(
             PROJECT_ID
         )
+        
+        self.project_id = PROJECT_ID
+        self.location = LOCATION
+        self.target_dataset = TARGET_DATASET
 
         vertexai.init(
             project=PROJECT_ID,
@@ -41,10 +45,10 @@ class AIService:
 
         # Fetch schema dynamically from BigQuery
         schema = self.bq.get_table_schema(
-            TARGET_DATASET,
+            self.target_dataset,
             table_name
         )
-        full_table_name = (f"{PROJECT_ID}."f"{TARGET_DATASET}."f"{table_name}")
+        full_table_name = (f"{self.project_id}."f"{self.target_dataset}."f"{table_name}")
 
         # Enterprise-grade AI prompt
         prompt = f"""

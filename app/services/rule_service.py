@@ -8,6 +8,8 @@ class RuleService:
 
     def __init__(self):
         self.bq = BigQueryAdapter(PROJECT_ID)
+        self.project_id = PROJECT_ID
+        self.target_dataset = TARGET_DATASET
 
     def compile_sql(self, table_name, rule):
 
@@ -25,7 +27,7 @@ class RuleService:
                     ELSE 0
                 END
             ) AS failed_records
-        FROM `{PROJECT_ID}.{TARGET_DATASET}.{table_name}`
+        FROM `{self.project_id}.{self.target_dataset}.{table_name}`
         """
 
     def insert_watchtower_result(self, dataset, result_record):
@@ -113,7 +115,7 @@ class RuleService:
             }
 
             self.bq.register_rule(
-                TARGET_DATASET,
+                self.target_dataset,
                 registry_record
             )
 
