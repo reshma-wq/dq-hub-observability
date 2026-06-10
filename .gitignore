@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-.env
 .env.local
 *.json
 !requirements.txt
