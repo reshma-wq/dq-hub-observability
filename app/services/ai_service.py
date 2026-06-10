@@ -237,6 +237,12 @@ Return raw JSON only.
             ""
         )
 
+        # Fix common JSON escaping issues from AI models
+        # Escape unescaped backslashes in strings
+        import re
+        # This regex finds backslashes that aren't already escaped
+        raw_text = re.sub(r'(?<!\\)\\(?!["\\/bfnrtu])', r'\\\\', raw_text)
+
         # Convert to Python JSON
 
         try:
@@ -245,13 +251,15 @@ Return raw JSON only.
                 raw_text
             )
 
-        except Exception:
+        except json.JSONDecodeError as e:
 
             print(
                 "RAW GEMINI RESPONSE"
             )
 
             print(raw_text)
+            
+            print(f"JSON Parse Error: {e}")
 
             raise
 

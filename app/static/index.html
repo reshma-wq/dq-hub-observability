@@ -73,6 +73,23 @@ input,select,textarea{font-family:inherit;font-size:inherit}
   transition:background .15s;
 }
 .project-pill:hover{background:rgba(61,214,140,0.14)}
+.dataset-selector{
+  display:flex;align-items:center;gap:7px;font-size:12px;
+  color:var(--code-green);background:rgba(61,214,140,0.08);
+  padding:5px 11px;border-radius:var(--radius-sm);
+  font-family:'IBM Plex Mono',monospace;cursor:pointer;
+  border:0.5px solid rgba(61,214,140,0.2);
+  transition:background .15s;
+  appearance:none;
+  padding-right:30px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%233DD68C' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 8px center;
+  padding-right:28px;
+}
+.dataset-selector:hover{background-color:rgba(61,214,140,0.14)}
+.dataset-selector:focus{outline:none;border-color:var(--code-green);background-color:rgba(61,214,140,0.12)}
+.dataset-selector option{background:var(--bg-elevated);color:var(--text-primary)}
 .topbar-right{display:flex;align-items:center;gap:16px;color:var(--text-secondary)}
 .topbar-right i{font-size:17px;cursor:pointer;transition:color .15s}
 .topbar-right i:hover{color:var(--text-primary)}
@@ -493,14 +510,18 @@ const state = {
   currentTable: null,
   currentIncident: null,
   panel: null,
+  currentDataset: 'thd_bronze',
+  availableDatasets: [],
   addRule: {
     tab: 'ai',
     column: '',
     type: '',
     description: '',
+    placeholders: {},
     aiSelected: [],
     editingRuleId: null,
   },
+  templateInfo: {},
   aiExpanded: false,
   aiDismissed: false,
   scanRunning: false,
@@ -664,6 +685,73 @@ async function generateAIRules(
       "Failed to generate AI rules",
       "error"
     );
+  }
+}
+
+async function loadDatasets() {
+  try {
+    // Fetch available datasets
+    const response = await fetch("/dashboard/datasets");
+    
+    if (!response.ok) {
+      throw new Error("Failed to fetch datasets");
+    }
+    
+    const datasets = await response.json();
+    
+    if (datasets && datasets.length > 0) {
+      // Set default dataset to first one or TARGET_DATASET
+      state.currentDataset = datasets[0].name;
+      state.availableDatasets = datasets;
+      
+      // Load tables for the default dataset
+      await loadTablesForDataset(state.currentDataset);
+    }
+  } catch (error) {
+    console.error("Error loading datasets:", error);
+    // Fall back to thd_bronze
+    state.currentDataset = 'thd_bronze';
+    state.availableDatasets = [{name: 'thd_bronze', description: 'thd_bronze'}];
+  }
+}
+
+
+
+async function loadRulesForAllTables(datasetName, tableNames) {
+  try {
+    console.log(`[loadRulesForAllTables] Fetching rules for ${tableNames.length} tables in parallel...`);
+    
+    // Fetch rules for all tables in parallel (non-blocking)
+    const rulePromises = tableNames.map(tableName => 
+      fetch(`/dashboard/table/${tableName}`)
+        .then(r => r.json())
+        .catch(err => {
+          console.error(`[loadRulesForAllTables] Error fetching rules for ${tableName}:`, err);
+          return { rules: [], columns: [], rows: 0 };
+        })
+    );
+    
+    const allTableData = await Promise.all(rulePromises);
+    
+    // Update state.tables with rules (non-blocking update)
+    allTableData.forEach((tableData, index) => {
+      if (tableData && tableNames[index]) {
+        const tableName = tableNames[index];
+        if (state.tables[tableName]) {
+          state.tables[tableName].rules = tableData.rules || [];
+          state.tables[tableName].columns = tableData.columns || [];
+          state.tables[tableName].rows = tableData.rows || 0;
+          state.tables[tableName].last_scan = tableData.last_scan || null;
+        }
+      }
+    });
+    
+    console.log(`[loadRulesForAllTables] Rules loaded for all tables`);
+    
+    // Trigger a re-render to show the updated rules
+    render();
+  } catch (error) {
+    console.error(`[loadRulesForAllTables] Error:`, error);
   }
 }
 
@@ -1083,6 +1171,11 @@ function renderTopbar() {
     crumb += `<span class="crumb-sep">/</span><span class="crumb-current mono">${r ? r.name : ''}</span>`;
   }
 
+  // Build dataset selector options
+  const datasetOptions = state.availableDatasets
+    .map(ds => `<option value="${ds.name}" ${ds.name === state.currentDataset ? 'selected' : ''}>${ds.name}</option>`)
+    .join('');
+
   $('#topbar').innerHTML = `
     <div class="topbar-left">
       <div class="brand" data-nav="overview">
@@ -1090,11 +1183,9 @@ function renderTopbar() {
         <span>Data quality</span>
       </div>
       <span class="crumb-sep">/</span>
-      <div class="project-pill">
-        <i class="ti ti-database"></i>
-        thd_bronze
-        <i class="ti ti-chevron-down"></i>
-      </div>
+      <select id="dataset-selector" class="dataset-selector">
+        ${datasetOptions || '<option value="thd_bronze">thd_bronze</option>'}
+      </select>
     </div>
     <div class="topbar-right">
       <i class="ti ti-search" title="Search"></i>
@@ -1114,6 +1205,20 @@ function renderTopbar() {
       render();
     });
   });
+
+  // Setup dataset selector listener
+  const datasetSelector = $('#dataset-selector');
+  if (datasetSelector) {
+    datasetSelector.addEventListener('change', async (e) => {
+      state.currentDataset = e.target.value;
+      console.log(`Dataset changed to: ${state.currentDataset}`);
+      
+      // Force refresh tables for new dataset
+      await loadTablesForDataset(state.currentDataset, true);
+      state.currentTable = null;  // Reset table selection
+      render();
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1476,6 +1581,13 @@ async function renderTableDetail() {
   await response.json();
 
   t.rules = tableData.rules || [];
+  t.columns = tableData.columns || [];
+  t.lastScan = tableData.last_scan || null;
+  t.rows = tableData.rows || 0;
+  t.baselines = [];  // Initialize empty baselines array
+  t.schema = state.currentDataset || 'thd_bronze';  // Use current dataset as schema
+  t.aiSuggestions = t.aiSuggestions || [];  // Preserve existing AI suggestions
+  
   const tn = state.currentTable;
   const st = tableStatus(t);
   const health = tableHealth(t);
@@ -1540,18 +1652,17 @@ async function renderTableDetail() {
     </div>
   `;
 
-  //last scan ${t.lastScan? new Date(t.lastScan).toLocaleString(): 'never'}
   const baselineHTML = `
     <div class="section">
       <div class="section-label">Baseline · auto-applied</div>
       <div class="baseline-list">
-        ${t.baselines.map(b => `
+        ${(t.baselines && t.baselines.length > 0) ? t.baselines.map(b => `
           <div class="baseline-item ${b.status}">
             <i class="ti ${b.status === 'passing' ? 'ti-check' : 'ti-circle-dashed'} status"></i>
             <span class="name">${b.name}</span>
             <span class="detail">${b.detail}</span>
           </div>
-        `).join('')}
+        `).join('') : '<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:12px">No baselines configured</div>'}
       </div>
     </div>
   `;
@@ -1613,7 +1724,7 @@ async function renderTableDetail() {
   }
 
   let aiHTML = '';
-  if (!state.aiDismissed && t.aiSuggestions.length > 0) {
+  if (!state.aiDismissed && (t.aiSuggestions && t.aiSuggestions.length > 0)) {
     if (state.aiExpanded) {
       aiHTML = `
         <div class="ai-expanded">
@@ -2143,22 +2254,42 @@ function renderPanel() {
   const colOptions = ['<option value="">Select column</option>', ...cols.map(c => `<option value="${c}" ${state.addRule.column === c ? 'selected' : ''}>${c}</option>`)].join('');
   const typeOptions = ['<option value="">Select rule type</option>', ...state.ruleTypes.map(rt => `<option value="${rt.v}" ${state.addRule.type === rt.v ? 'selected' : ''}>${rt.l}</option>`)].join('');
 
+  // Get placeholder info for current rule type
+  let placeholderFields = [];
+  if (state.addRule.tab === 'template' && state.addRule.type) {
+    const templateInfo = state.templateInfo?.[state.addRule.type] || {};
+    placeholderFields = templateInfo.placeholders || [];
+  }
+
   // Generate SQL preview based on form
+  const dataset = state.currentDataset;  // Use currently selected dataset
   let previewSQL = '';
   if (state.addRule.tab === 'ai') {
     previewSQL = "-- Click 'Generate suggestions' to let AI propose rules based on this table's schema and sample data.";
   } else if (state.addRule.tab === 'template') {
     const col = state.addRule.column || '<column>';
     const type = state.addRule.type;
-    if (type === 'not_null') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} IS NULL`;
-    else if (type === 'unique') previewSQL = `SELECT ${col}\nFROM ${t.schema}.${state.currentTable}\nGROUP BY ${col}\nHAVING COUNT(*) > 1`;
-    else if (type === 'in_values') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT IN (<values>)`;
-    else if (type === 'between') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT BETWEEN <min> AND <max>`;
-    else if (type === 'positive') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} <= 0 OR ${col} IS NULL`;
-    else if (type === 'pattern') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT REGEXP_CONTAINS(${col}, r'<pattern>')`;
-    else previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
+    const placeholders = state.addRule.placeholders || {};
+    
+    if (type === 'not_null') previewSQL = `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE ${col} IS NULL`;
+    else if (type === 'unique') previewSQL = `SELECT ${col}\nFROM \`${dataset}.${state.currentTable}\`\nGROUP BY ${col}\nHAVING COUNT(*) > 1`;
+    else if (type === 'in_values') {
+      const vals = placeholders.placeholder || '<values>';
+      previewSQL = `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE ${col} NOT IN (${vals})`;
+    }
+    else if (type === 'between') {
+      const min = placeholders.min_val || '<min>';
+      const max = placeholders.max_val || '<max>';
+      previewSQL = `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE ${col} NOT BETWEEN ${min} AND ${max}`;
+    }
+    else if (type === 'positive') previewSQL = `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE ${col} <= 0 OR ${col} IS NULL`;
+    else if (type === 'pattern') {
+      const pattern = placeholders.placeholder || '<pattern>';
+      previewSQL = `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE NOT REGEXP_CONTAINS(${col}, r'${pattern}')`;
+    }
+    else previewSQL = `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE <condition>`;
   } else {
-    previewSQL = state.addRule.description || `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
+    previewSQL = state.addRule.description || `SELECT *\nFROM \`${dataset}.${state.currentTable}\`\nWHERE <condition>`;
   }
 
   const aiTabContent = `
@@ -2169,6 +2300,14 @@ function renderPanel() {
       <button class="btn btn-primary" id="ai-generate"><i class="ti ti-sparkles"></i>Generate suggestions</button>
     </div>
   `;
+
+  // Build placeholder input fields for template rules
+  const placeholderInputs = placeholderFields.map(field => `
+    <div class="field">
+      <div class="field-label">${field.label} <span class="hint">${field.description}</span></div>
+      <input type="text" class="input" id="placeholder-${field.key}" placeholder="${field.example}" value="${state.addRule.placeholders?.[field.key] || ''}" />
+    </div>
+  `).join('');
 
   const formContent = `
     <div class="field">
@@ -2181,6 +2320,7 @@ function renderPanel() {
         <div class="field-label">Rule type <span class="hint">required</span></div>
         <select class="select" id="ar-type">${typeOptions}</select>
       </div>
+      ${placeholderInputs}
     ` : ''}
 
     <div class="field">
@@ -2224,8 +2364,35 @@ function renderPanel() {
     el.addEventListener('click', () => { state.addRule.tab = el.dataset.tab; renderPanel(); });
   });
   $('#ar-column')?.addEventListener('change', (e) => { state.addRule.column = e.target.value; renderPanel(); });
-  $('#ar-type')?.addEventListener('change', (e) => { state.addRule.type = e.target.value; renderPanel(); });
+  $('#ar-type')?.addEventListener('change', async (e) => { 
+    state.addRule.type = e.target.value;
+    if (state.addRule.type) {
+      // Fetch placeholder info for this rule type
+      try {
+        const response = await fetch(`/rules/template-info/${state.addRule.type}`);
+        const info = await response.json();
+        if (info && info.placeholders) {
+          state.templateInfo = state.templateInfo || {};
+          state.templateInfo[state.addRule.type] = info;
+        }
+      } catch (err) {
+        console.error('Error fetching template info:', err);
+      }
+    }
+    renderPanel();
+  });
   $('#ar-desc')?.addEventListener('input', (e) => { state.addRule.description = e.target.value; });
+  
+  // Add event listeners for placeholder inputs
+  $$('[id^="placeholder-"]').forEach(el => {
+    const fieldKey = el.id.replace('placeholder-', '');
+    el.addEventListener('input', (e) => {
+      if (!state.addRule.placeholders) state.addRule.placeholders = {};
+      state.addRule.placeholders[fieldKey] = e.target.value;
+      renderPanel();
+    });
+  });
+  
   $('#panel-x')?.addEventListener('click', closePanel);
   $('#panel-cancel')?.addEventListener('click', closePanel);
   $('#ai-generate')?.addEventListener('click',async () => {
@@ -2237,37 +2404,81 @@ function renderPanel() {
     );
   }
 );
-  $('#panel-submit')?.addEventListener('click', () => {
+  $('#panel-submit')?.addEventListener('click', async () => {
     if (state.addRule.tab === 'ai') return;
     if (!state.addRule.column) { showToast('Pick a column first', 'error'); return; }
+    
     const ruleName = state.addRule.description.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
-    if (editing && editingRule) {
-      editingRule.column = state.addRule.column;
-      editingRule.name = ruleName;
-      editingRule.description = state.addRule.description;
-      editingRule.sql = previewSQL;
-      editingRule.status = 'passing';
-      editingRule.violations = 0;
-      if (editingRule.error) delete editingRule.error;
-      t.lastScanFailed = false;
-      showToast(`Rule "${ruleName}" updated`);
-    } else {
-      const newRule = {
-        id: 'new_' + Date.now(),
-        column: state.addRule.column,
-        name: ruleName,
-        status: 'passing',
-        violations: 0,
-        description: state.addRule.description,
-        sql: previewSQL,
-      };
-      t.rules.push(newRule);
-      state.recentlyAddedRuleId = newRule.id;
-      showToast(`Rule "${ruleName}" added to ${state.currentTable}`);
-      setTimeout(() => { state.recentlyAddedRuleId = null; render(); }, 3000);
+    
+    try {
+      // For template rules: call backend API
+      if (state.addRule.tab === 'template') {
+        if (!state.addRule.type) { showToast('Select a rule type first', 'error'); return; }
+        
+        showToast('Saving template rule...', 'info');
+        
+        const response = await fetch('/rules/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            table_name: state.currentTable,
+            column_name: state.addRule.column,
+            rule_type: state.addRule.type,
+            description: state.addRule.description,
+            placeholder_values: state.addRule.placeholders || {}
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to save template rule');
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+          showToast(`Template rule "${ruleName}" saved to BigQuery`, 'success');
+          closePanel();
+          // Refresh rules list
+          await renderTableDetail();
+        } else {
+          showToast(`Error: ${result.message}`, 'error');
+        }
+      } 
+      // For custom SQL rules: call backend API
+      else if (state.addRule.tab === 'custom') {
+        showToast('Saving custom SQL rule...', 'info');
+        
+        const response = await fetch('/rules/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            table_name: state.currentTable,
+            column_name: state.addRule.column,
+            rule_name: ruleName,
+            description: state.addRule.description,
+            sql_condition: state.addRule.description
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to save custom rule');
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+          showToast(`Custom rule "${ruleName}" saved to BigQuery`, 'success');
+          closePanel();
+          // Refresh rules list
+          await renderTableDetail();
+        } else {
+          showToast(`Error: ${result.message}`, 'error');
+        }
+      }
+    } catch (error) {
+      console.error('Rule submission error:', error);
+      showToast('Failed to save rule: ' + error.message, 'error');
     }
-    closePanel();
-    render();
   });
 }
 
@@ -2504,6 +2715,254 @@ async function refreshDashboard() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// DATASET LOADING FUNCTIONS
+// ─────────────────────────────────────────────────────────────
+
+// Cache for datasets and tables to minimize API calls
+const cache = {
+  datasets: null,
+  tables: {},
+  summary: null,
+  lastUpdate: {}
+};
+
+const CACHE_TTL = 30000; // 30 seconds cache
+
+function isCacheValid(key) {
+  const now = Date.now();
+  return cache.lastUpdate[key] && (now - cache.lastUpdate[key]) < CACHE_TTL;
+}
+
+async function loadDatasets(forceRefresh = false) {
+  try {
+    // Return cached data if valid
+    if (!forceRefresh && cache.datasets && isCacheValid('datasets')) {
+      console.log("[loadDatasets] Using cached datasets");
+      return cache.datasets;
+    }
+
+    console.log("[loadDatasets] Fetching datasets from BigQuery...");
+    
+    const response = await fetch("/dashboard/datasets");
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch datasets: ${response.status} ${response.statusText}`);
+    }
+    
+    const datasets = await response.json();
+    
+    console.log("[loadDatasets] Datasets loaded:", datasets.length);
+    
+    if (datasets && Array.isArray(datasets) && datasets.length > 0) {
+      // Cache the datasets
+      cache.datasets = datasets;
+      cache.lastUpdate['datasets'] = Date.now();
+      
+      // Set default dataset to first one from GCP
+      state.currentDataset = datasets[0].name;
+      state.availableDatasets = datasets;
+      
+      console.log(`[loadDatasets] Default dataset set to: ${state.currentDataset}`);
+      
+      // Load tables for the default dataset
+      await loadTablesForDataset(state.currentDataset);
+      
+      return datasets;
+    } else {
+      console.warn("[loadDatasets] No datasets found, using fallback");
+      state.currentDataset = 'thd_bronze';
+      state.availableDatasets = [{name: 'thd_bronze', description: 'thd_bronze (default)'}];
+      return state.availableDatasets;
+    }
+  } catch (error) {
+    console.error("[loadDatasets] Error loading datasets:", error);
+    state.currentDataset = 'thd_bronze';
+    state.availableDatasets = [{name: 'thd_bronze', description: 'thd_bronze (default)'}];
+    return state.availableDatasets;
+  }
+}
+
+async function loadTablesForDataset(datasetName, forceRefresh = false) {
+  try {
+    // Return cached data if valid
+    if (!forceRefresh && cache.tables[datasetName] && isCacheValid(`tables_${datasetName}`)) {
+      console.log(`[loadTablesForDataset] Using cached tables for ${datasetName}`);
+      populateTablesFromCache(datasetName);
+      // Still load rules even with cached tables
+      await loadRulesForAllTables(datasetName, cache.tables[datasetName]);
+      return cache.tables[datasetName];
+    }
+
+    console.log(`[loadTablesForDataset] Fetching tables for dataset: ${datasetName}`);
+    
+    const response = await fetch(`/dashboard/tables/${datasetName}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tables: ${response.status} ${response.statusText}`);
+    }
+    
+    const tables = await response.json();
+    
+    console.log(`[loadTablesForDataset] Tables loaded for ${datasetName}:`, tables.length);
+    
+    if (tables && Array.isArray(tables)) {
+      // Cache the tables
+      cache.tables[datasetName] = tables;
+      cache.lastUpdate[`tables_${datasetName}`] = Date.now();
+      
+      // Populate state.tables
+      populateTablesFromCache(datasetName);
+      
+      console.log(`[loadTablesForDataset] Initialized ${Object.keys(state.tables).length} tables for dataset ${datasetName}`);
+      
+      // Load rules for all tables immediately (modular, non-blocking)
+      await loadRulesForAllTables(datasetName, tables);
+      
+      return tables;
+    } else {
+      console.warn(`[loadTablesForDataset] No tables found for dataset ${datasetName}`);
+      return [];
+    }
+  } catch (error) {
+    console.error(`[loadTablesForDataset] Error loading tables for ${datasetName}:`, error);
+    return [];
+  }
+}
+
+function populateTablesFromCache(datasetName) {
+  state.tables = {};
+  const tables = cache.tables[datasetName] || [];
+  
+  tables.forEach(tableName => {
+    state.tables[tableName] = {
+      table_name: tableName,
+      schema: datasetName,
+      rules: [],
+      last_scan: null,
+      rows: 0,
+      columns: []
+    };
+  });
+}
+
+async function loadDashboardSummary(forceRefresh = false) {
+  try {
+    // Return cached data if valid
+    if (!forceRefresh && cache.summary && isCacheValid('summary')) {
+      console.log("[loadDashboardSummary] Using cached summary");
+      applyDashboardSummary(cache.summary);
+      return cache.summary;
+    }
+
+    console.log("[loadDashboardSummary] Fetching dashboard summary...");
+    
+    const response = await fetch("/dashboard/summary");
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch summary: ${response.status} ${response.statusText}`);
+    }
+    
+    const summary = await response.json();
+    
+    console.log("[loadDashboardSummary] Summary loaded");
+    
+    if (summary) {
+      // Cache the summary
+      cache.summary = summary;
+      cache.lastUpdate['summary'] = Date.now();
+      
+      applyDashboardSummary(summary);
+      
+      return summary;
+    }
+  } catch (error) {
+    console.error("[loadDashboardSummary] Error loading dashboard summary:", error);
+  }
+}
+
+function applyDashboardSummary(summary) {
+  state.dashboardSummary = {
+    system_health: summary.system_health || 0,
+    tables_monitored: summary.tables_monitored || 0,
+    open_incidents: summary.open_incidents || 0,
+    last_scan: summary.last_scan || "--"
+  };
+  
+  if (summary.tables && Array.isArray(summary.tables)) {
+    summary.tables.forEach(tableData => {
+      if (state.tables[tableData.table_name]) {
+        state.tables[tableData.table_name] = {
+          ...state.tables[tableData.table_name],
+          ...tableData
+        };
+      }
+    });
+  }
+  
+  console.log("[loadDashboardSummary] State updated with summary data");
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTO-REFRESH & POLLING
+// ─────────────────────────────────────────────────────────────
+
+let refreshInterval = null;
+let datasetCheckInterval = null;
+
+function startAutoRefresh(intervalMs = 60000) {
+  console.log(`[startAutoRefresh] Starting auto-refresh every ${intervalMs}ms`);
+  
+  refreshInterval = setInterval(async () => {
+    console.log("[startAutoRefresh] Running periodic refresh...");
+    await loadDashboardSummary(true);
+    render();
+  }, intervalMs);
+}
+
+function startDatasetPolling(intervalMs = 120000) {
+  console.log(`[startDatasetPolling] Starting dataset polling every ${intervalMs}ms`);
+  
+  datasetCheckInterval = setInterval(async () => {
+    console.log("[startDatasetPolling] Checking for new datasets...");
+    
+    const newDatasets = await loadDatasets(true);
+    
+    // Check if datasets changed
+    if (newDatasets.length !== state.availableDatasets.length) {
+      console.log("[startDatasetPolling] Datasets changed! Detected new dataset.");
+      render();
+      showToast("New dataset detected! Refreshing...", "info");
+    }
+    
+    // Check for new tables in current dataset
+    const newTables = await loadTablesForDataset(state.currentDataset, true);
+    const currentTableCount = Object.keys(state.tables).length;
+    
+    if (newTables.length !== currentTableCount) {
+      console.log("[startDatasetPolling] Tables changed! Detected new table.");
+      render();
+      showToast("New table detected in current dataset!", "info");
+    }
+  }, intervalMs);
+}
+
+function stopAutoRefresh() {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+    console.log("[stopAutoRefresh] Auto-refresh stopped");
+  }
+}
+
+function stopDatasetPolling() {
+  if (datasetCheckInterval) {
+    clearInterval(datasetCheckInterval);
+    datasetCheckInterval = null;
+    console.log("[stopDatasetPolling] Dataset polling stopped");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // MASTER RENDER
 // ─────────────────────────────────────────────────────────────
 
@@ -2525,9 +2984,36 @@ document.addEventListener('keydown', (e) => {
 });
 $('#panel-backdrop').addEventListener('click', closePanel);
 
-loadDashboardSummary().then(() => {
-  render();
-});
+// Initialize: Load datasets first, then dashboard summary
+(async () => {
+  console.log("[INIT] Application starting...");
+  const startTime = Date.now();
+  
+  try {
+    // Load datasets and tables first
+    console.log("[INIT] Loading datasets and tables...");
+    await loadDatasets();
+    
+    // Then load dashboard summary
+    console.log("[INIT] Loading dashboard summary...");
+    await loadDashboardSummary();
+    
+    const loadTime = Date.now() - startTime;
+    console.log(`[INIT] Dashboard loaded in ${loadTime}ms`);
+    
+    // Render after everything is loaded
+    render();
+    
+    // Start auto-refresh: refresh dashboard every 60 seconds
+    startAutoRefresh(60000);
+    
+    // Start dataset polling: check for new datasets/tables every 2 minutes
+    startDatasetPolling(120000);
+  } catch (error) {
+    console.error("[INIT] Error during initialization:", error);
+    render();
+  }
+})();
 </script>
 
 </body>

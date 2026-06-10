@@ -52,16 +52,25 @@ class BigQueryAdapter:
 
 
     def register_rule(self, dataset, rule):
-        print("INSERTING RULE")
-        print(rule)
         table_id = f"{self.project_id}.{dataset}.dq_rules_registry"
-        rows = [rule]
-        errors = self.client.insert_rows_json(
-            table_id,
-            rows
-        )
-        if errors:
-            raise Exception(errors)
+        
+        try:
+            # Convert datetime to RFC 3339 string for JSON serialization
+            if isinstance(rule.get('created_at'), object) and hasattr(rule.get('created_at'), 'isoformat'):
+                rule['created_at'] = rule['created_at'].isoformat() + 'Z'
+            
+            # Use insert_rows_json for JSON-serializable data
+            # BigQuery will auto-convert ISO timestamp strings to TIMESTAMP
+            errors = self.client.insert_rows_json(
+                table_id,
+                [rule]
+            )
+            if errors:
+                error_msg = f"BigQuery insert errors: {errors}"
+                raise Exception(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to insert rule into BigQuery: {str(e)}"
+            raise Exception(error_msg)
     
     def get_active_rules(self, dataset, table_name):
         query = f"""SELECT * FROM `{self.project_id}.{dataset}.dq_rules_registry` WHERE table_name = '{table_name}' AND active_flag = 'Y'"""
@@ -491,6 +500,9 @@ class BigQueryAdapter:
                     row.failed_records or 0
             })
 
+        # Get table columns
+        columns = self.get_table_columns(dataset, table_name)
+
         return {
 
             "table_name":
@@ -500,7 +512,10 @@ class BigQueryAdapter:
                 len(rules),
 
             "rules":
-                rules
+                rules,
+
+            "columns":
+                columns
         }
 
 
@@ -560,6 +575,28 @@ class BigQueryAdapter:
             # Permission denied or table not found - return empty list
             import logging
             logging.error(f"get_dataset_tables error: {str(e)}")
+            return []
+
+    def get_datasets(self):
+        """
+        Fetches list of all datasets in the GCP project.
+        
+        Returns:
+            list: List of dataset dictionaries with name and description
+        """
+        try:
+            datasets = []
+            for dataset in self.client.list_datasets():
+                # Safely get description - use getattr to avoid AttributeError
+                description = getattr(dataset, 'description', None) or dataset.dataset_id
+                datasets.append({
+                    "name": dataset.dataset_id,
+                    "description": description
+                })
+            return datasets
+        except Exception as e:
+            import logging
+            logging.error(f"get_datasets error: {str(e)}")
             return []
 
     def save_results_to_bq(self, results, results_table_path: str, full_target_table_name: str):

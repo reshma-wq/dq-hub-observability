@@ -4,12 +4,98 @@ from app.adapters.bq_adapter import BigQueryAdapter
 from app.utils.config import PROJECT_ID, TARGET_DATASET
 
 
+# Template rule SQL patterns
+# Maps rule_type to WHERE clause condition
+TEMPLATE_SQL_PATTERNS = {
+    'not_null': '{column} IS NULL',
+    'unique': 'COUNT(*) != COUNT(DISTINCT {column})',
+    'in_values': '{column} NOT IN ({placeholder})',
+    'between': '{column} NOT BETWEEN {min_val} AND {max_val}',
+    'positive': '{column} <= 0 OR {column} IS NULL',
+    'pattern': 'NOT REGEXP_CONTAINS({column}, r\'{placeholder}\')',
+}
+
+# Placeholder configuration for template rules
+# Defines which rules need placeholders and how many
+TEMPLATE_PLACEHOLDERS = {
+    'not_null': [],
+    'unique': [],
+    'positive': [],
+    'in_values': [
+        {
+            'key': 'placeholder',
+            'label': 'Allowed Values',
+            'description': 'Comma-separated list of allowed values',
+            'example': "'value1', 'value2', 'value3'"
+        }
+    ],
+    'between': [
+        {
+            'key': 'min_val',
+            'label': 'Minimum Value',
+            'description': 'Lower bound for range check',
+            'example': '0'
+        },
+        {
+            'key': 'max_val',
+            'label': 'Maximum Value',
+            'description': 'Upper bound for range check',
+            'example': '100'
+        }
+    ],
+    'pattern': [
+        {
+            'key': 'placeholder',
+            'label': 'Regex Pattern',
+            'description': 'Regular expression pattern to match',
+            'example': '^[A-Z][a-z]+$'
+        }
+    ],
+}
+
+
 class RuleService:
 
     def __init__(self):
         self.bq = BigQueryAdapter(PROJECT_ID)
         self.project_id = PROJECT_ID
         self.target_dataset = TARGET_DATASET
+
+    def get_rules(self, dataset, table_name):
+        """
+        Fetches all registered rules for a table from BigQuery.
+        
+        Args:
+            dataset (str): Dataset name
+            table_name (str): Table name
+            
+        Returns:
+            list: List of rule records
+        """
+        try:
+            return self.bq.get_registered_rules(dataset, table_name)
+        except Exception as e:
+            print(f"Error fetching rules: {str(e)}")
+            return []
+
+    def get_template_info(self, rule_type):
+        """
+        Gets placeholder information for a template rule type.
+        
+        Args:
+            rule_type (str): Template rule type
+            
+        Returns:
+            dict: {rule_type, placeholders, sql_pattern}
+        """
+        if rule_type not in TEMPLATE_SQL_PATTERNS:
+            return None
+        
+        return {
+            "rule_type": rule_type,
+            "sql_pattern": TEMPLATE_SQL_PATTERNS[rule_type],
+            "placeholders": TEMPLATE_PLACEHOLDERS.get(rule_type, [])
+        }
 
     def compile_sql(self, table_name, rule):
 
@@ -95,6 +181,94 @@ class RuleService:
             "progress_percentage": progress_percentage
         }     
 
+    def create_template_rule(self, table_name, column_name, rule_type, description, placeholder_values=None):
+        """
+        Creates a template-based rule and saves it to BigQuery registry.
+        
+        Args:
+            table_name (str): Target table name
+            column_name (str): Column to validate
+            rule_type (str): Type of template rule (not_null, unique, positive, etc.)
+            description (str): Human-readable description of the rule
+            placeholder_values (dict): Dictionary of placeholder values {key: value}
+            
+        Returns:
+            dict: {status, rule_id, message}
+        """
+        try:
+            # Validate rule type exists
+            if rule_type not in TEMPLATE_SQL_PATTERNS:
+                return {
+                    "status": "error",
+                    "message": f"Invalid rule type: {rule_type}"
+                }
+            
+            # Generate rule name from description
+            rule_name = description.strip().lower().replace(' ', '_').replace('-', '_')[:50] or f"{column_name}_{rule_type}"
+            
+            # Get the SQL pattern for this rule type
+            sql_pattern = TEMPLATE_SQL_PATTERNS[rule_type]
+            
+            # Build the sql_condition (the WHERE clause part)
+            # Use placeholder values if provided
+            if placeholder_values is None:
+                placeholder_values = {}
+            
+            format_kwargs = {
+                'column': column_name,
+                'placeholder': placeholder_values.get('placeholder', '<value>'),
+                'min_val': placeholder_values.get('min_val', '<min>'),
+                'max_val': placeholder_values.get('max_val', '<max>')
+            }
+            
+            try:
+                sql_condition = sql_pattern.format(**format_kwargs)
+            except KeyError:
+                # If pattern doesn't have placeholders, use as-is with just column substitution
+                sql_condition = sql_pattern.format(column=column_name)
+            
+            # Create a mock rule object for compile_sql
+            class MockRule:
+                pass
+            
+            mock_rule = MockRule()
+            mock_rule.column_name = column_name
+            mock_rule.rule_name = rule_name
+            mock_rule.sql_condition = sql_condition
+            
+            # Compile full SQL for execution
+            compiled_sql = self.compile_sql(table_name, mock_rule)
+            
+            # Create registry record with correct data types
+            # created_at is datetime object - BigQuery will auto-convert to TIMESTAMP
+            created_timestamp = datetime.utcnow()
+            
+            registry_record = {
+                "table_name": table_name,
+                "column_name": column_name,
+                "rule_name": rule_name,
+                "description": description,
+                "sql_condition": sql_condition,
+                "compiled_sql": compiled_sql,
+                "created_at": created_timestamp,
+                "active_flag": "Y"
+            }
+            
+            # Save to BigQuery
+            self.bq.register_rule(self.target_dataset, registry_record)
+            
+            return {
+                "status": "success",
+                "rule_id": f"{table_name}_{column_name}_{rule_type}_{int(datetime.utcnow().timestamp())}",
+                "message": f"Template rule '{rule_name}' created successfully"
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to create rule: {str(e)}"
+            }
+
     def register_rules(self, table_name, rules):
         print("REGISTERING RULES")
         print(rules)
@@ -110,7 +284,7 @@ class RuleService:
                 "description": rule.description,
                 "sql_condition": rule.sql_condition,
                 "compiled_sql": compiled_sql,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.utcnow(),
                 "active_flag": "Y"
             }
 

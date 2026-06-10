@@ -15,6 +15,35 @@ class DashboardService:
             logger.error(f"Failed to initialize BigQuery: {str(e)}")
             raise
 
+    def get_datasets(self):
+        """
+        Fetches list of all datasets in the GCP project.
+        
+        Returns:
+            list: List of dataset objects
+        """
+        try:
+            return self.bq.get_datasets()
+        except Exception as e:
+            logger.error(f"Error fetching datasets: {str(e)}")
+            return []
+
+    def get_tables_in_dataset(self, dataset_name):
+        """
+        Fetches list of tables in a specific dataset.
+        
+        Args:
+            dataset_name (str): Name of the dataset
+            
+        Returns:
+            list: List of table names
+        """
+        try:
+            return self.bq.get_dataset_tables(dataset_name)
+        except Exception as e:
+            logger.error(f"Error fetching tables for {dataset_name}: {str(e)}")
+            return []
+
     def get_summary(self):
         try:
             return self.bq.get_dashboard_summary(
