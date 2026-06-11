@@ -749,35 +749,51 @@ async function loadRulesForAllTables(datasetName, tableNames) {
   try {
     console.log(`[loadRulesForAllTables] Fetching rules for ${tableNames.length} tables in parallel...`);
     
-    // Fetch rules for all tables in parallel (non-blocking)
+    // Fetch rules for all tables in parallel with proper tracking
     const rulePromises = tableNames.map(tableName => 
       fetch(`/dashboard/table/${tableName}`)
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) throw new Error(`Failed to fetch ${tableName}: ${r.status}`);
+          return r.json();
+        })
+        .then(data => ({ tableName, data }))  // CRITICAL: Track which table each response belongs to
         .catch(err => {
           console.error(`[loadRulesForAllTables] Error fetching rules for ${tableName}:`, err);
-          return { rules: [], columns: [], rows: 0 };
+          showToast(`Failed to load rules for ${tableName}`, 'warning');
+          return { tableName, data: { rules: [], columns: [], rows: 0, last_scan: null } };
         })
     );
     
     const allTableData = await Promise.all(rulePromises);
     
-    // Update state.tables with rules (non-blocking update)
-    allTableData.forEach((tableData, index) => {
-      if (tableData && tableNames[index]) {
-        const tableName = tableNames[index];
-        if (state.tables[tableName]) {
-          state.tables[tableName].rules = tableData.rules || [];
-          state.tables[tableName].columns = tableData.columns || [];
-          state.tables[tableName].rows = tableData.rows || 0;
-          state.tables[tableName].last_scan = tableData.last_scan || null;
-        }
+    // Update state.tables with rules (with proper table name mapping)
+    allTableData.forEach(({ tableName, data: tableData }) => {
+      // CRITICAL: Create table entry if it doesn't exist
+      if (!state.tables[tableName]) {
+        console.log(`[loadRulesForAllTables] Creating missing table entry for ${tableName}`);
+        state.tables[tableName] = {
+          table_name: tableName,
+          schema: datasetName,
+          rules: [],
+          last_scan: null,
+          rows: 0,
+          columns: []
+        };
+      }
+      
+      if (state.tables[tableName]) {
+        state.tables[tableName].rules = tableData.rules || [];
+        state.tables[tableName].columns = tableData.columns || [];
+        state.tables[tableName].rows = tableData.rows || 0;
+        state.tables[tableName].last_scan = tableData.last_scan || null;
+        console.log(`[loadRulesForAllTables] Updated ${tableName}: ${(tableData.rules || []).length} rules`);
       }
     });
     
     console.log(`[loadRulesForAllTables] Rules loaded for all tables`);
     
-    // Trigger a re-render to show the updated rules
-    render();
+    // NOTE: Do NOT call render() here - caller will handle rendering
+    // This allows callers to batch multiple updates before rendering
   } catch (error) {
     console.error(`[loadRulesForAllTables] Error:`, error);
   }
@@ -1126,7 +1142,7 @@ async function registerSelectedRules(
     };
 
     const response = await fetch(
-      `/rules`,
+      `/rules/`,
       {
 
         method: "POST",
@@ -1148,12 +1164,26 @@ async function registerSelectedRules(
       );
     }
 
-    await response.json();
+    const responseData = await response.json();
 
-    showToast(
-      "Rules registered successfully",
-      "success"
-    );
+    // Check if registration was successful
+    if (responseData.status !== 'success' && responseData.rules_registered === 0) {
+      throw new Error(responseData.message || "Failed to register rules");
+    }
+
+    // Show success message with details if some failed
+    if (responseData.failed_rules && responseData.failed_rules.length > 0) {
+      showToast(
+        `${responseData.rules_registered} rule(s) registered, ${responseData.failed_rules.length} failed`,
+        "warning"
+      );
+      console.warn('Failed rules:', responseData.failed_rules);
+    } else {
+      showToast(
+        "Rules registered successfully",
+        "success"
+      );
+    }
 
     // Remove registered rules
     state.tables[
@@ -1171,13 +1201,25 @@ async function registerSelectedRules(
 
     state.aiExpanded = false;
 
-    // Refresh rules list and immediately render
-    await renderTableDetail();
-    render(); // Force UI update
+    // CRITICAL: Invalidate all caches before refreshing
+    console.log('[ai-rule] Invalidating all caches after rule registration...');
+    invalidateCache([`tables_${state.currentDataset}`, 'summary']);
+
+    // Fully refresh table data including rules from backend
+    console.log('[ai-rule] Refreshing table data after rule registration...');
+    try {
+      await loadDashboardSummary(true);
+      await loadTablesForDataset(state.currentDataset, true);
+      await renderTableDetail();
+      render(); // Force UI update
+    } catch (refreshError) {
+      console.error('[ai-rule] Error refreshing data (but rules were saved):', refreshError);
+      // Even if refresh fails, the rules were already saved
+      showToast('Rules saved, but had trouble refreshing. Please refresh the page.', 'warning');
+    }
     
-    // AUTO RUN CHECK like template and custom SQL rules do
-    showToast('Running check on new AI rules...', 'info');
-    await runScan(tableName);
+    // User must manually click "Run checks"
+    showToast('Click "Run checks" to scan with new rules', 'info');
 
   } catch (error) {
 
@@ -1605,22 +1647,40 @@ async function renderTableDetail() {
   }
 
   const t = currentTable();
+  
+  // CRITICAL: Ensure table exists in state before proceeding
+  if (!t) {
+    console.error('[renderTableDetail] Current table not found in state:', state.currentTable);
+    console.log('[renderTableDetail] Available tables:', Object.keys(state.tables));
+    showToast('Table data not available', 'error');
+    state.view = 'overview';
+    return render();
+  }
 
   const response =
   await fetch(
   `/dashboard/table/${state.currentTable}`
   );
 
+  if (!response.ok) {
+    console.error('[renderTableDetail] Failed to fetch table data:', response.status);
+    showToast(`Failed to load table data: ${response.status}`, 'error');
+    return;
+  }
+
   const tableData =
   await response.json();
 
-  t.rules = tableData.rules || [];
-  t.columns = tableData.columns || [];
-  t.lastScan = tableData.last_scan || null;
-  t.rows = tableData.rows || 0;
-  t.baselines = [];  // Initialize empty baselines array
-  t.schema = state.currentDataset || 'thd_bronze';  // Use current dataset as schema
-  t.aiSuggestions = t.aiSuggestions || [];  // Preserve existing AI suggestions
+  // CRITICAL: Set all properties safely
+  if (t) {
+    t.rules = tableData.rules || [];
+    t.columns = tableData.columns || [];
+    t.lastScan = tableData.last_scan || null;
+    t.rows = tableData.rows || 0;
+    t.baselines = [];  // Initialize empty baselines array
+    t.schema = state.currentDataset || 'thd_bronze';  // Use current dataset as schema
+    t.aiSuggestions = t.aiSuggestions || [];  // Preserve existing AI suggestions
+  }
   
   const tn = state.currentTable;
   const st = tableStatus(t);
@@ -2280,7 +2340,26 @@ function renderPanel() {
   }
 
   const t = currentTable();
-  if (!t) return;
+  if (!t || !t.columns || t.columns.length === 0) {
+    // Table data not available yet, retry after delay
+    if (!renderPanel._retryCount) renderPanel._retryCount = 0;
+    if (renderPanel._retryCount < 10) {
+      renderPanel._retryCount++;
+      console.warn(`[renderPanel] Table data incomplete (columns: ${t?.columns?.length || 0}, retry ${renderPanel._retryCount}/10), retrying...`);
+      setTimeout(() => {
+        if (state.panel === 'add-rule') {
+          renderPanel();
+        }
+      }, 300);
+    } else {
+      console.error('[renderPanel] Failed to load table data after 10 retries');
+      showToast('Error loading table data', 'error');
+      renderPanel._retryCount = 0;
+      closePanel();
+    }
+    return;
+  }
+  renderPanel._retryCount = 0;
   const editing = state.addRule.editingRuleId;
   const editingRule = editing ? t.rules.find(r => r.id === editing) : null;
 
@@ -2488,14 +2567,27 @@ function renderPanel() {
         
         if (result.status === 'success') {
           showToast(`Template rule "${ruleName}" saved to BigQuery`, 'success');
+          // CRITICAL: Invalidate all caches before refreshing
+          console.log('[template-rule] Invalidating all caches after rule creation...');
+          invalidateCache([`tables_${state.currentDataset}`, 'summary']);
+          // Fully refresh table data including rules from backend
+          console.log('[template-rule] Refreshing table data after rule creation...');
+          try {
+            await loadDashboardSummary(true);
+            await loadTablesForDataset(state.currentDataset, true);
+            await renderTableDetail();
+            render(); // Force UI update
+          } catch (refreshError) {
+            console.error('[template-rule] Error refreshing data (but rule was saved):', refreshError);
+            // Even if refresh fails, the rule was already saved
+            // Show a different toast
+            showToast('Rule saved, but had trouble refreshing. Please refresh the page.', 'warning');
+          }
+          // NOW close the panel after data is fresh
           closePanel();
-          // Refresh rules list and immediately render
-          await renderTableDetail();
-          render(); // Force UI update
           
-          // AUTO RUN CHECK like AI rules do
-          showToast('Running check on new template rule...', 'info');
-          await runScan(state.currentTable);
+          // User must manually click "Run checks"
+          showToast('Click "Run checks" to scan with new rule', 'info');
         } else {
           showToast(`Error: ${result.message}`, 'error');
         }
@@ -2526,14 +2618,27 @@ function renderPanel() {
         
         if (result.status === 'success') {
           showToast(`Custom rule "${ruleName}" saved to BigQuery`, 'success');
+          // CRITICAL: Invalidate all caches before refreshing
+          console.log('[custom-rule] Invalidating all caches after rule creation...');
+          invalidateCache([`tables_${state.currentDataset}`, 'summary']);
+          // Fully refresh table data including rules from backend
+          console.log('[custom-rule] Refreshing table data after rule creation...');
+          try {
+            await loadDashboardSummary(true);
+            await loadTablesForDataset(state.currentDataset, true);
+            await renderTableDetail();
+            render(); // Force UI update
+          } catch (refreshError) {
+            console.error('[custom-rule] Error refreshing data (but rule was saved):', refreshError);
+            // Even if refresh fails, the rule was already saved
+            // Show a different toast
+            showToast('Rule saved, but had trouble refreshing. Please refresh the page.', 'warning');
+          }
+          // NOW close the panel after data is fresh
           closePanel();
-          // Refresh rules list and immediately render
-          await renderTableDetail();
-          render(); // Force UI update
           
-          // AUTO RUN CHECK like AI rules and template rules do
-          showToast('Running check on new custom rule...', 'info');
-          await runScan(state.currentTable);
+          // User must manually click "Run checks"
+          showToast('Click "Run checks" to scan with new rule', 'info');
         } else {
           showToast(`Error: ${result.message}`, 'error');
         }
@@ -2565,7 +2670,16 @@ function openAddRule(tab = 'ai', editId = null) {
 }
 function closePanel() {
   state.panel = null;
-  state.addRule.editingRuleId = null;
+  state.addRule = {
+    tab: 'ai',
+    column: '',
+    type: '',
+    description: '',
+    customSQLCondition: '',
+    placeholders: {},
+    aiSelected: [],
+    editingRuleId: null,
+  };
   renderPanel();
 }
 
@@ -2709,15 +2823,15 @@ async function runScan(tableName) {
       await fetch(
         endpoint,
         {
-          method: "POST"
+          method: "POST",
+          timeout: 120000  // 2 minute timeout
         }
       );
 
     if (!response.ok) {
-
-      throw new Error(
-        "Scan execution failed"
-      );
+      const errorData = await response.json().catch(() => ({}));
+      const errorMsg = errorData.message || errorData.error || `HTTP ${response.status}`;
+      throw new Error(`Scan execution failed: ${errorMsg}`);
     }
 
     const data =
@@ -2729,20 +2843,26 @@ async function runScan(tableName) {
     );
 
     showToast(
-      "Scan completed",
+      "Scan completed successfully",
       "success"
     );
 
-    // SINGLE refresh only
+    // CRITICAL: Invalidate caches before refresh
+    console.log('[runScan] Invalidating caches after scan...');
+    invalidateCache([`tables_${state.currentDataset}`, 'summary']);
 
+    // FULL refresh with cache invalidation
+    console.log('[runScan] Refreshing dashboard after scan completion...');
     await refreshDashboard();
 
   } catch (error) {
 
-    console.error(error);
-
+    console.error('[runScan] Error:', error);
+    
+    // Show detailed error message to user
+    const errorMsg = error.message || 'Unknown error during scan';
     showToast(
-      "Scan failed",
+      `Scan failed: ${errorMsg}`,
       "error"
     );
 
@@ -2751,14 +2871,14 @@ async function runScan(tableName) {
     state.scanRunning =
       false;
 
-    // IMPORTANT
+    // IMPORTANT: Ensure UI lock is released
 
     setTimeout(() => {
 
       state.scanExecutionLocked =
         false;
 
-    }, 1500);
+    }, 2000);
 
     render();
   }
@@ -2766,15 +2886,40 @@ async function runScan(tableName) {
 
 
 async function refreshDashboard() {
+  try {
+    console.log('[refreshDashboard] Starting refresh...');
+    
+    // CRITICAL: Invalidate caches first
+    invalidateCache([`tables_${state.currentDataset}`, 'summary']);
+    
+    console.log('[refreshDashboard] Step 1: Loading dashboard summary and tables in PARALLEL...');
+    
+    // Load summary and tables in parallel (both independent)
+    const [summary, tables] = await Promise.all([
+      loadDashboardSummary(true),
+      loadTablesForDataset(state.currentDataset, true)
+    ]);
+    
+    console.log('[refreshDashboard] Step 1 complete: Summary and tables loaded');
+    
+    // If on table detail view, re-render it
+    if (state.view === 'table-detail' && state.currentTable) {
+      console.log('[refreshDashboard] Step 2: Re-rendering table detail...');
+      await renderTableDetail();
+      console.log('[refreshDashboard] Step 2 complete: Table detail rendered');
+    }
+    
+    // Final UI render
+    console.log('[refreshDashboard] Step 3: Rendering UI...');
+    render();
+    console.log('[refreshDashboard] Step 3 complete: UI rendered');
 
-  await loadDashboardSummary();
-
-  render();
-
-  showToast(
-    "Dashboard refreshed",
-    "success"
-  );
+    showToast('Dashboard updated', 'success');
+    console.log('[refreshDashboard] Refresh complete');
+  } catch (error) {
+    console.error('[refreshDashboard] Error:', error);
+    showToast('Refresh failed: ' + (error.message || 'Unknown error'), 'error');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2794,6 +2939,28 @@ const CACHE_TTL = 30000; // 30 seconds cache
 function isCacheValid(key) {
   const now = Date.now();
   return cache.lastUpdate[key] && (now - cache.lastUpdate[key]) < CACHE_TTL;
+}
+
+function invalidateCache(keys = []) {
+  // Invalidate specific cache keys or all if none specified
+  if (keys.length === 0) {
+    cache.datasets = null;
+    cache.tables = {};
+    cache.summary = null;
+    cache.lastUpdate = {};
+    console.log('[invalidateCache] Cleared all caches');
+  } else {
+    keys.forEach(key => {
+      if (key.startsWith('tables_')) {
+        const dataset = key.replace('tables_', '');
+        delete cache.tables[dataset];
+      } else {
+        cache[key] = null;
+      }
+      delete cache.lastUpdate[key];
+    });
+    console.log(`[invalidateCache] Cleared caches: ${keys.join(', ')}`);
+  }
 }
 
 async function loadDatasets(forceRefresh = false) {

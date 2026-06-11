@@ -343,37 +343,57 @@ class RuleService:
             rules (List[Rule]): List of Rule objects from RuleRegistrationRequest
             
         Returns:
-            dict: {status, rules_registered}
+            dict: {status, rules_registered, failed_rules}
         """
         try:
             print("REGISTERING RULES")
             print(f"Table: {table_name}, Number of rules: {len(rules)}")
 
+            registered_count = 0
+            failed_rules = []
+
             for rule in rules:
-                print(f"Processing rule: {rule.rule_name}")
+                try:
+                    print(f"Processing rule: {rule.rule_name}")
 
-                compiled_sql = self.compile_sql(table_name, rule)
+                    compiled_sql = self.compile_sql(table_name, rule)
 
-                registry_record = {
-                    "table_name": table_name,
-                    "column_name": rule.column_name,
-                    "rule_name": rule.rule_name,
-                    "description": rule.description,
-                    "sql_condition": rule.sql_condition,
-                    "compiled_sql": compiled_sql,
-                    "created_at": datetime.utcnow(),
-                    "active_flag": "Y"
+                    registry_record = {
+                        "table_name": table_name,
+                        "column_name": rule.column_name,
+                        "rule_name": rule.rule_name,
+                        "description": rule.description,
+                        "sql_condition": rule.sql_condition,
+                        "compiled_sql": compiled_sql,
+                        "created_at": datetime.utcnow(),
+                        "active_flag": "Y"
+                    }
+
+                    self.bq.register_rule(
+                        self.target_dataset,
+                        registry_record
+                    )
+                    print(f"Rule registered: {rule.rule_name}")
+                    registered_count += 1
+                    
+                except Exception as rule_error:
+                    print(f"Failed to register rule {rule.rule_name}: {str(rule_error)}")
+                    failed_rules.append({
+                        "rule_name": rule.rule_name,
+                        "error": str(rule_error)
+                    })
+
+            if registered_count == 0:
+                return {
+                    "status": "error",
+                    "message": f"Failed to register any rules: {failed_rules}",
+                    "failed_rules": failed_rules
                 }
-
-                self.bq.register_rule(
-                    self.target_dataset,
-                    registry_record
-                )
-                print(f"Rule registered: {rule.rule_name}")
-
+            
             return {
                 "status": "success",
-                "rules_registered": len(rules)
+                "rules_registered": registered_count,
+                "failed_rules": failed_rules if failed_rules else []
             }
             
         except Exception as e:
