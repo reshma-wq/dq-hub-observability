@@ -269,31 +269,116 @@ class RuleService:
                 "message": f"Failed to create rule: {str(e)}"
             }
 
-    def register_rules(self, table_name, rules):
-        print("REGISTERING RULES")
-        print(rules)
-
-        for rule in rules:
-
-            compiled_sql = self.compile_sql(table_name, rule)
-
+    def create_custom_sql_rule(self, table_name, column_name, rule_name, description, sql_condition):
+        """
+        Creates a custom SQL rule and saves it to BigQuery registry.
+        Inverts the user's PASSING condition to a FAILING condition.
+        
+        Args:
+            table_name (str): Target table name
+            column_name (str): Column associated with rule
+            rule_name (str): Rule name (user-provided)
+            description (str): Human-readable description
+            sql_condition (str): SQL condition for PASSING records (user writes this)
+            
+        Returns:
+            dict: {status, rule_id, message}
+            
+        Example:
+            User input: "salary IS NOT NULL"
+            Backend stores: "NOT (salary IS NOT NULL)"
+            This way, the condition evaluates to TRUE for FAILING records
+        """
+        try:
+            # Invert the SQL condition: wrap in NOT(...)
+            # This converts user's PASSING condition to FAILING condition
+            inverted_condition = f"NOT ({sql_condition})"
+            
+            # Create a mock rule object for compile_sql
+            class MockRule:
+                pass
+            
+            mock_rule = MockRule()
+            mock_rule.column_name = column_name
+            mock_rule.rule_name = rule_name
+            mock_rule.sql_condition = inverted_condition
+            
+            # Compile full SQL for execution
+            compiled_sql = self.compile_sql(table_name, mock_rule)
+            
+            # Create registry record
             registry_record = {
                 "table_name": table_name,
-                "column_name": rule.column_name,
-                "rule_name": rule.rule_name,
-                "description": rule.description,
-                "sql_condition": rule.sql_condition,
+                "column_name": column_name,
+                "rule_name": rule_name,
+                "description": description,
+                "sql_condition": inverted_condition,  # Store inverted condition
                 "compiled_sql": compiled_sql,
                 "created_at": datetime.utcnow(),
                 "active_flag": "Y"
             }
+            
+            # Save to BigQuery
+            self.bq.register_rule(self.target_dataset, registry_record)
+            
+            return {
+                "status": "success",
+                "rule_id": f"{table_name}_{column_name}_custom_{int(datetime.utcnow().timestamp())}",
+                "message": f"Custom SQL rule '{rule_name}' created successfully"
+            }
+            
+        except Exception as e:
+            print(f"Error creating custom SQL rule: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Failed to create rule: {str(e)}"
+            }
 
-            self.bq.register_rule(
-                self.target_dataset,
-                registry_record
-            )
+    def register_rules(self, table_name, rules):
+        """
+        Registers multiple rules (from AI suggestions) to BigQuery.
+        
+        Args:
+            table_name (str): Target table name
+            rules (List[Rule]): List of Rule objects from RuleRegistrationRequest
+            
+        Returns:
+            dict: {status, rules_registered}
+        """
+        try:
+            print("REGISTERING RULES")
+            print(f"Table: {table_name}, Number of rules: {len(rules)}")
 
-        return {
-            "status": "success",
-            "rules_registered": len(rules)
-        }
+            for rule in rules:
+                print(f"Processing rule: {rule.rule_name}")
+
+                compiled_sql = self.compile_sql(table_name, rule)
+
+                registry_record = {
+                    "table_name": table_name,
+                    "column_name": rule.column_name,
+                    "rule_name": rule.rule_name,
+                    "description": rule.description,
+                    "sql_condition": rule.sql_condition,
+                    "compiled_sql": compiled_sql,
+                    "created_at": datetime.utcnow(),
+                    "active_flag": "Y"
+                }
+
+                self.bq.register_rule(
+                    self.target_dataset,
+                    registry_record
+                )
+                print(f"Rule registered: {rule.rule_name}")
+
+            return {
+                "status": "success",
+                "rules_registered": len(rules)
+            }
+            
+        except Exception as e:
+            print(f"Error registering rules: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Failed to register rules: {str(e)}"
+            }

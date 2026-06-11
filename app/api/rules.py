@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.services.rule_service import RuleService
-from app.models.rule_models import RuleRegistrationRequest, TemplateRuleRequest
+from app.models.rule_models import RuleRegistrationRequest, TemplateRuleRequest, CustomSQLRuleRequest
 from app.utils.config import TARGET_DATASET
 
 router = APIRouter()
@@ -35,15 +35,38 @@ def create_template_rule(request: TemplateRuleRequest):
         request.placeholder_values
     )
 
+# POST /rules/custom - custom SQL rule creation
+@router.post("/custom", response_model=dict)
+def create_custom_sql_rule(request: CustomSQLRuleRequest):
+    """
+    Creates a custom SQL rule and saves to BigQuery.
+    User provides the PASSING condition, backend inverts it to FAILING condition.
+    """
+    return service.create_custom_sql_rule(
+        request.table_name,
+        request.column_name,
+        request.rule_name,
+        request.description,
+        request.sql_condition
+    )
+
 # POST /rules/ - register multiple rules
 @router.post("/", response_model=dict)
 def register_rules(
     request: RuleRegistrationRequest
 ):
-    return service.register_rules(
+    print(f"DEBUG: Received rule registration request")
+    print(f"DEBUG: Table: {request.table_name}")
+    print(f"DEBUG: Number of rules: {len(request.rules)}")
+    for idx, rule in enumerate(request.rules):
+        print(f"DEBUG: Rule {idx}: {rule.rule_name} - column: {rule.column_name}")
+    
+    result = service.register_rules(
         request.table_name,
         request.rules
     )
+    print(f"DEBUG: Registration result: {result}")
+    return result
 
 # GET /rules/{table_name} - fetch rules for a table (generic, comes last)
 @router.get("/{table_name}", response_model=list)

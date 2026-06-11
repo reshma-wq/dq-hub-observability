@@ -221,11 +221,18 @@ Return raw JSON only.
 """
 
         # Generate AI response
-        response = self.model.generate_content(
-            prompt
-        )
+        try:
+            response = self.model.generate_content(
+                prompt
+            )
+        except Exception as e:
+            print(f"ERROR: Gemini API failed: {str(e)}")
+            raise
 
         raw_text = response.text.strip()
+        
+        print(f"AI RESPONSE LENGTH: {len(raw_text)}")
+        print(f"AI RESPONSE FIRST 500 CHARS: {raw_text[:500]}")
 
         # Clean markdown if Gemini returns it
 

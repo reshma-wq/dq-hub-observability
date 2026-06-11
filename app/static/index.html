@@ -517,6 +517,7 @@ const state = {
     column: '',
     type: '',
     description: '',
+    customSQLCondition: '',
     placeholders: {},
     aiSelected: [],
     editingRuleId: null,
@@ -613,6 +614,33 @@ function highlightSQL(sql) {
     .replace(/'([^']*)'/g, '<span class="str">\'$1\'</span>')
     .replace(/\b(\d+\.?\d*)\b/g, '<span class="num">$1</span>')
     .replace(/&lt;column&gt;|&lt;condition&gt;|&lt;value&gt;/g, '<span class="pl">$&</span>');
+}
+
+// Update AI button state without full re-render
+function updateAIButtonState() {
+  const aiAddBtn = $('#ai-add-selected');
+  const aiCounter = document.querySelector('.ai-exp-foot span');
+  
+  if (aiAddBtn) {
+    const selectedCount = state.addRule.aiSelected.length;
+    const t = currentTable();
+    const totalCount = t && t.aiSuggestions ? t.aiSuggestions.length : 0;
+    
+    // Update button state
+    if (selectedCount === 0) {
+      aiAddBtn.disabled = true;
+    } else {
+      aiAddBtn.disabled = false;
+    }
+    
+    // Update button text
+    aiAddBtn.innerHTML = `Add ${selectedCount || ''} rule${selectedCount === 1 ? '' : 's'}`;
+    
+    // Update counter
+    if (aiCounter) {
+      aiCounter.textContent = `${selectedCount} of ${totalCount} selected`;
+    }
+  }
 }
 
 async function generateAIRules(
@@ -1143,7 +1171,13 @@ async function registerSelectedRules(
 
     state.aiExpanded = false;
 
-    render();
+    // Refresh rules list and immediately render
+    await renderTableDetail();
+    render(); // Force UI update
+    
+    // AUTO RUN CHECK like template and custom SQL rules do
+    showToast('Running check on new AI rules...', 'info');
+    await runScan(tableName);
 
   } catch (error) {
 
@@ -2328,13 +2362,25 @@ function renderPanel() {
       <textarea class="textarea" id="ar-desc" placeholder="${state.addRule.tab === 'custom' ? 'Describe what this rule checks…' : 'What does this rule check?'}" rows="2">${escapeHtml(state.addRule.description)}</textarea>
     </div>
 
-    <div class="field">
-      <div class="field-label">
-        <span>SQL preview</span>
-        <span class="hint">${state.addRule.tab === 'custom' ? 'edit below' : 'auto-generated'}</span>
+    ${state.addRule.tab === 'custom' ? `
+      <div class="field">
+        <div class="field-label">SQL Condition <span class="hint">required</span></div>
+        <textarea class="textarea" id="ar-sql-condition" placeholder="e.g., salary IS NOT NULL or age > 18" rows="3">${escapeHtml(state.addRule.customSQLCondition || '')}</textarea>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:6px">
+          Write the SQL that identifies <strong>passing</strong> records. Backend will invert it to find failing records.
+        </div>
       </div>
-      <div class="sql-preview">${highlightSQL(previewSQL)}</div>
-    </div>
+    ` : ''}
+
+    ${state.addRule.tab !== 'custom' ? `
+      <div class="field">
+        <div class="field-label">
+          <span>SQL preview</span>
+          <span class="hint">${state.addRule.tab === 'custom' ? 'edit below' : 'auto-generated'}</span>
+        </div>
+        <div class="sql-preview">${highlightSQL(previewSQL)}</div>
+      </div>
+    ` : ''}
   `;
 
   $('#add-rule-panel').innerHTML = `
@@ -2382,6 +2428,11 @@ function renderPanel() {
     renderPanel();
   });
   $('#ar-desc')?.addEventListener('input', (e) => { state.addRule.description = e.target.value; });
+  
+  // Custom SQL condition - update state without re-rendering to preserve cursor position
+  $('#ar-sql-condition')?.addEventListener('input', (e) => { 
+    state.addRule.customSQLCondition = e.target.value;
+  });
   
   // Add event listeners for placeholder inputs
   $$('[id^="placeholder-"]').forEach(el => {
@@ -2438,14 +2489,21 @@ function renderPanel() {
         if (result.status === 'success') {
           showToast(`Template rule "${ruleName}" saved to BigQuery`, 'success');
           closePanel();
-          // Refresh rules list
+          // Refresh rules list and immediately render
           await renderTableDetail();
+          render(); // Force UI update
+          
+          // AUTO RUN CHECK like AI rules do
+          showToast('Running check on new template rule...', 'info');
+          await runScan(state.currentTable);
         } else {
           showToast(`Error: ${result.message}`, 'error');
         }
       } 
       // For custom SQL rules: call backend API
       else if (state.addRule.tab === 'custom') {
+        if (!state.addRule.customSQLCondition) { showToast('Enter SQL condition first', 'error'); return; }
+        
         showToast('Saving custom SQL rule...', 'info');
         
         const response = await fetch('/rules/custom', {
@@ -2456,7 +2514,7 @@ function renderPanel() {
             column_name: state.addRule.column,
             rule_name: ruleName,
             description: state.addRule.description,
-            sql_condition: state.addRule.description
+            sql_condition: state.addRule.customSQLCondition
           })
         });
         
@@ -2469,8 +2527,13 @@ function renderPanel() {
         if (result.status === 'success') {
           showToast(`Custom rule "${ruleName}" saved to BigQuery`, 'success');
           closePanel();
-          // Refresh rules list
+          // Refresh rules list and immediately render
           await renderTableDetail();
+          render(); // Force UI update
+          
+          // AUTO RUN CHECK like AI rules and template rules do
+          showToast('Running check on new custom rule...', 'info');
+          await runScan(state.currentTable);
         } else {
           showToast(`Error: ${result.message}`, 'error');
         }

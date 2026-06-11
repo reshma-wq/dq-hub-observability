@@ -18,3 +18,11 @@ class TemplateRuleRequest(BaseModel):
     rule_type: str
     description: str
     placeholder_values: Optional[Dict[str, Any]] = None
+
+class CustomSQLRuleRequest(BaseModel):
+    """Request model for creating custom SQL rules"""
+    table_name: str
+    column_name: str
+    rule_name: str
+    description: str
+    sql_condition: str
