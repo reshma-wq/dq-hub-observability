@@ -24,32 +24,74 @@ class BigQueryAdapter:
             
         return "\n".join(schema_summary)
 
-    def get_registered_rules(self,dataset_name: str,table_name: str):
-        query = f"""
-            SELECT *
-            FROM
-            `{self.project_id}.{dataset_name}.dq_rules_registry`
-            WHERE
-            table_name = @table
-        """
+    # def get_registered_rules(self,dataset_name: str,table_name: str):
+    #     query = f"""
+    #         SELECT *
+    #         FROM
+    #         `{self.project_id}.{dataset_name}.dq_rules_registry`
+    #         WHERE
+    #         table_name = @table
+    #     """
 
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter(
-                    "table",
-                    "STRING",
-                    table_name
-                )
-            ]
-        )
+    #     job_config = bigquery.QueryJobConfig(
+    #         query_parameters=[
+    #             bigquery.ScalarQueryParameter(
+    #                 "table",
+    #                 "STRING",
+    #                 table_name
+    #             )
+    #         ]
+    #     )
 
-        results = self.client.query(
-            query,
-            job_config=job_config
-        ).result()
+    #     results = self.client.query(
+    #         query,
+    #         job_config=job_config
+    #     ).result()
+
+    #     return list(results)
+
+    def get_registered_rules(
+        self,
+        dataset_name: str,
+        table_name: str = None):
+
+        if table_name:
+
+            query = f"""
+                SELECT *
+                FROM `{self.project_id}.{dataset_name}.dq_rules_registry`
+                WHERE table_name = @table
+                AND active_flag = 'Y'
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter(
+                        "table",
+                        "STRING",
+                        table_name
+                    )
+                ]
+            )
+
+            results = self.client.query(
+                query,
+                job_config=job_config
+            ).result()
+
+        else:
+
+            query = f"""
+                SELECT *
+                FROM `{self.project_id}.{dataset_name}.dq_rules_registry`
+                WHERE active_flag = 'Y'
+            """
+
+            results = self.client.query(
+                query
+            ).result()
 
         return list(results)
-
 
     def register_rule(self, dataset, rule):
         print("INSERTING RULE")
