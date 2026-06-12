@@ -1,7 +1,11 @@
 from google.cloud import bigquery
 import re
 
-from app.utils.config import TARGET_DATASET
+# from app.utils.config import TARGET_DATASET
+from app.utils.config import (
+    TARGET_DATASET,
+    DQ_HUB_DATASET
+)
 
 class BigQueryAdapter:
     def __init__(self, project_id: str):
@@ -634,3 +638,198 @@ class BigQueryAdapter:
             raise Exception(f"Failed to stream audit snapshots into Watchtower log: {errors}")
 
     
+    def insert_knowledge_record(
+        self,
+        record
+    ):
+
+        table_id = (
+            f"{self.project_id}."
+            f"{DQ_HUB_DATASET}."
+            f"enterprise_knowledge_hub"
+        )
+
+        print("TABLE ID")
+        print(table_id)
+
+        print("RECORD")
+        print(record)
+
+        errors = self.client.insert_rows_json(
+            table_id,
+            [record]
+        )
+
+        print("INSERT ERRORS")
+        print(errors)
+
+        if errors:
+            raise Exception(errors)
+
+        print("INSERT SUCCESS")
+
+
+    def get_knowledge_context(
+            self,
+            table_name
+        ):
+
+            query = f"""
+                SELECT *
+                FROM
+                `{self.project_id}.{DQ_HUB_DATASET}.enterprise_knowledge_hub`
+                WHERE
+                    table_name = @table_name
+                    AND active_flag = TRUE
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter(
+                        "table_name",
+                        "STRING",
+                        table_name
+                    )
+                ]
+            )
+
+            results = list(
+                self.client.query(
+                    query,
+                    job_config=job_config
+                ).result()
+            )
+
+            if not results:
+                return None
+
+            return dict(
+                results[0].items()
+            )
+    
+
+    def get_column_samples(
+        self,
+        dataset_name,
+        table_name
+    ):
+
+        samples = {}
+
+        table = self.client.get_table(
+            f"{self.project_id}.{dataset_name}.{table_name}"
+        )
+
+        for field in table.schema:
+
+            if field.field_type != "STRING":
+                continue
+
+            query = f"""
+            SELECT DISTINCT
+                `{field.name}`
+            FROM
+                `{self.project_id}.{dataset_name}.{table_name}`
+            WHERE
+                `{field.name}` IS NOT NULL
+            LIMIT 10
+            """
+
+            try:
+
+                results = self.client.query(
+                    query
+                ).result()
+
+                values = [
+                    str(row[field.name])
+                    for row in results
+                ]
+
+                samples[field.name] = values
+
+            except Exception as ex:
+
+                print(
+                    f"Sample extraction failed for {field.name}"
+                )
+
+                print(ex)
+
+        return samples
+
+    def get_numeric_profiles(
+            self,
+            dataset_name,
+            table_name
+        ):
+
+            profiles = {}
+
+            table = self.client.get_table(
+                f"{self.project_id}.{dataset_name}.{table_name}"
+            )
+
+            numeric_types = [
+                "INTEGER",
+                "INT64",
+                "NUMERIC",
+                "FLOAT",
+                "FLOAT64"
+            ]
+
+            for field in table.schema:
+
+                if field.field_type not in numeric_types:
+                    continue
+
+                query = f"""
+                SELECT
+                    MIN({field.name}) AS min_value,
+                    MAX({field.name}) AS max_value,
+                    AVG({field.name}) AS avg_value
+                FROM
+                    `{self.project_id}.{dataset_name}.{table_name}`
+                """
+
+                try:
+
+                    result = list(
+                        self.client.query(
+                            query
+                        ).result()
+                    )[0]
+
+                    profiles[field.name] = {
+
+                        "min":
+                            float(
+                                result["min_value"]
+                            )
+                            if result["min_value"] is not None
+                            else None,
+
+                        "max":
+                            float(
+                                result["max_value"]
+                            )
+                            if result["max_value"] is not None
+                            else None,
+
+                        "avg":
+                            float(
+                                result["avg_value"]
+                            )
+                            if result["avg_value"] is not None
+                            else None
+                    }
+
+                except Exception as ex:
+
+                    print(
+                        f"Numeric profiling failed for {field.name}"
+                    )
+
+                    print(ex)
+
+            return profiles
