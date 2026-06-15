@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import execution
 from app.api import dashboard
+from app.api import knowledge_hub
 
 from app.api import ai
 from app.api import rules
@@ -49,6 +50,12 @@ app.include_router(
     rules.router,
     prefix="/rules",
     tags=["Rules"]
+)
+
+app.include_router(
+    knowledge_hub.router,
+    prefix="/knowledge-hub",
+    tags=["Knowledge Hub"]
 )
 
 @app.get("/")

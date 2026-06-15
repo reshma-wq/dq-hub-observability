@@ -22,6 +22,6 @@ class DashboardService:
 
     def get_table_details(self,table_name):
         return self.bq.get_table_details(
-            "thd_bronze",
+            TARGET_DATASET,
             table_name
         )

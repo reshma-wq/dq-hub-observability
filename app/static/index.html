@@ -287,8 +287,8 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 .ai-exp-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}
 .ai-exp-title i{color:var(--info);font-size:16px}
 .ai-exp-title .meta{font-size:11px;color:var(--text-secondary);font-weight:400}
-.ai-grid-head{display:grid;grid-template-columns:34px 140px 1fr 1fr;gap:12px;padding:9px 16px;background:var(--bg-elevated-2);font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:500}
-.ai-grid-row{display:grid;grid-template-columns:34px 140px 1fr 1fr;gap:12px;padding:12px 16px;font-size:12px;align-items:center;border-top:0.5px solid var(--border)}
+.ai-grid-head{display:grid;grid-template-columns:34px 120px 140px 1fr 1fr;gap:12px;padding:9px 16px;background:var(--bg-elevated-2);font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:500}
+.ai-grid-row{display:grid;grid-template-columns:34px 120px 140px 1fr 1fr;gap:12px;padding:12px 16px;font-size:12px;align-items:center;border-top:0.5px solid var(--border)}
 .ai-grid-row input[type=checkbox]{accent-color:var(--accent)}
 .ai-sug-col{font-family:'IBM Plex Mono',monospace;color:var(--text-secondary)}
 .ai-sug-name{font-weight:500}
@@ -594,6 +594,26 @@ function highlightSQL(sql) {
     .replace(/&lt;column&gt;|&lt;condition&gt;|&lt;value&gt;/g, '<span class="pl">$&</span>');
 }
 
+function getCategoryBadge(category) {
+
+  const colorMap = {
+    TECHNICAL: "pill-info",
+    BUSINESS: "pill-success",
+    DOMAIN: "pill-warning",
+    CROSS_FIELD: "pill-danger",
+    CROSS_TABLE: "pill-info"
+  };
+
+  return `
+    <span class="pill ${
+      colorMap[category] || "pill-info"
+    }">
+      ${category}
+    </span>
+  `;
+}
+
+
 async function generateAIRules(
   tableName
 ) {
@@ -635,6 +655,9 @@ async function generateAIRules(
 
         name:
           rule.rule_name,
+
+        category:
+          rule.rule_category,
 
         description:
           rule.description,
@@ -998,6 +1021,9 @@ async function registerSelectedRules(
           rule_name:
             rule.name,
 
+          rule_category:
+            rule.category,
+
           column_name:
             rule.column,
 
@@ -1310,7 +1336,8 @@ function renderOverview() {
           <h2>Tables</h2>
           <div class="sub">Pick one to view rules and recent activity</div>
         </div>
-        <button class="btn"><i class="ti ti-plus"></i>Add table</button>
+        <button class="btn" id="sync-kh-btn"><i class="ti ti-refresh"></i>
+      Sync Metadata</button>
       </div>
 
       <div>
@@ -1450,6 +1477,59 @@ function renderOverview() {
         async () => {
 
           await refreshDashboard();
+        };
+    }
+
+  const syncKhBtn =
+  document.getElementById(
+    "sync-kh-btn"
+  );
+
+    if (syncKhBtn) {
+
+      syncKhBtn.onclick =
+        async () => {
+
+          try {
+
+            showToast(
+              "Syncing Knowledge Hub...",
+              "info"
+            );
+
+            const response =
+              await fetch(
+                "/knowledge-hub/sync",
+                {
+                  method: "POST"
+                }
+              );
+
+            if (!response.ok) {
+
+              throw new Error(
+                "Knowledge Hub sync failed"
+              );
+            }
+
+            const result =
+              await response.json();
+
+            showToast(
+              result.message ||
+              "Knowledge Hub synchronized",
+              "success"
+            );
+
+          } catch (error) {
+
+            console.error(error);
+
+            showToast(
+              "Knowledge Hub sync failed",
+              "error"
+            );
+          }
         };
     }
 }
@@ -1611,6 +1691,32 @@ async function renderTableDetail() {
       </div>
     `;
   }
+  const technical =
+    t.aiSuggestions.filter(
+      r => r.category === "TECHNICAL"
+    ).length;
+
+  const business =
+    t.aiSuggestions.filter(
+      r => r.category === "BUSINESS"
+    ).length;
+
+  const domain =
+    t.aiSuggestions.filter(
+      r => r.category === "DOMAIN"
+    ).length;
+
+  const crossField =
+    t.aiSuggestions.filter(
+      r => r.category === "CROSS_FIELD"
+    ).length;
+
+  const crossTable =
+    t.aiSuggestions.filter(
+      r => r.category === "CROSS_TABLE"
+    ).length;
+
+
 
   let aiHTML = '';
   if (!state.aiDismissed && t.aiSuggestions.length > 0) {
@@ -1618,11 +1724,53 @@ async function renderTableDetail() {
       aiHTML = `
         <div class="ai-expanded">
           <div class="ai-exp-head">
-            <div class="ai-exp-title">
-              <i class="ti ti-sparkles"></i>
-              <span>AI-suggested rules</span>
-              <span class="meta">based on schema and sample data</span>
-            </div>
+
+  <div>
+
+    <div class="ai-exp-title">
+
+      <i class="ti ti-sparkles"></i>
+
+      <span>AI-suggested rules</span>
+
+      <span class="meta">
+        based on schema and sample data
+      </span>
+
+    </div>
+
+    <div
+      style="
+        display:flex;
+        gap:8px;
+        margin-top:8px;
+        flex-wrap:wrap;
+      "
+    >
+
+      <span class="pill pill-info">
+        Technical: ${technical}
+      </span>
+
+      <span class="pill pill-success">
+        Business: ${business}
+      </span>
+
+      <span class="pill pill-warning">
+        Domain: ${domain}
+      </span>
+
+      <span class="pill pill-danger">
+        Cross Field: ${crossField}
+      </span>
+
+      <span class="pill pill-info">
+        Cross Table: ${crossTable}
+      </span>
+
+    </div>
+
+  </div>
             <div style="display:flex;gap:10px;align-items:center">
               <button class="btn btn-sm btn-ghost" id="ai-regenerate"><i class="ti ti-refresh"></i>Regenerate</button>
               <button class="btn btn-sm btn-ghost" id="ai-collapse"><i class="ti ti-chevron-up"></i></button>
@@ -1630,6 +1778,7 @@ async function renderTableDetail() {
           </div>
           <div class="ai-grid-head">
             <div><input type="checkbox" id="ai-sel-all"></div>
+            <div>Category</div>
             <div>Column</div>
             <div>Rule</div>
             <div>SQL preview</div>
@@ -1637,6 +1786,7 @@ async function renderTableDetail() {
           ${t.aiSuggestions.map(s => `
             <div class="ai-grid-row">
               <div><input type="checkbox" class="ai-sel" data-sug="${s.id}" ${state.addRule.aiSelected.includes(s.id) ? 'checked' : ''}></div>
+              <div>${getCategoryBadge(s.category)}</div>
               <div class="ai-sug-col">${s.column}</div>
               <div>
                 <div class="ai-sug-name">${s.name}</div>

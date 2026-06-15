@@ -575,7 +575,7 @@ class BigQueryAdapter:
             SELECT
                 table_name
             FROM
-                `dq-universal-framework.{dataset}.INFORMATION_SCHEMA.TABLES`
+                `{self.project_id}.{dataset}.INFORMATION_SCHEMA.TABLES`
             """
 
         results = self.client.query(
@@ -833,3 +833,25 @@ class BigQueryAdapter:
                     print(ex)
 
             return profiles
+
+    def get_existing_knowledge_hub_tables(
+            self
+        ):
+
+            query = f"""
+            SELECT DISTINCT
+                table_name
+            FROM
+                `{self.project_id}.{DQ_HUB_DATASET}.enterprise_knowledge_hub`
+            WHERE
+                active_flag = TRUE
+            """
+
+            results = self.client.query(
+                query
+            ).result()
+
+            return {
+                row["table_name"]
+                for row in results
+            }

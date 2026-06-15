@@ -105,6 +105,7 @@ class RuleService:
                 "table_name": table_name,
                 "column_name": rule.column_name,
                 "rule_name": rule.rule_name,
+                "rule_category":rule.rule_category,
                 "description": rule.description,
                 "sql_condition": rule.sql_condition,
                 "compiled_sql": compiled_sql,
