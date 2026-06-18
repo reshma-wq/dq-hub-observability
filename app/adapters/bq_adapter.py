@@ -166,7 +166,7 @@ class BigQueryAdapter:
         """
         query_job = self.client.query(generated_sql)
         return list(query_job.result())
-
+    
     def insert_watchtower_result(self,dataset,result_record):
 
         table_id = (
@@ -286,7 +286,7 @@ class BigQueryAdapter:
                 SELECT *,
                     ROW_NUMBER() OVER (
                         PARTITION BY table_name, rule_name
-                        ORDER BY execution_ts DESC
+                        ORDER BY execution_status DESC
                     ) AS rn
                 FROM `{self.project_id}.{dataset}.dq_watchtower_results`
             )
@@ -308,7 +308,7 @@ class BigQueryAdapter:
                 tables[table_name] = {
                     "table_name": table_name,
                     "rules": [],
-                    "last_scan": str(row["execution_ts"]),
+                    "last_scan": str(row["execution_status"]),
                     "rows":
                         (row["passed_records"] or 0) +(row["failed_records"] or 0),
                     "columns":
@@ -495,7 +495,7 @@ class BigQueryAdapter:
             table_name = '{table_name}'
         QUALIFY ROW_NUMBER() OVER(
             PARTITION BY rule_name
-            ORDER BY execution_ts DESC
+            ORDER BY execution_status DESC
         ) = 1
         """
 
@@ -571,7 +571,7 @@ class BigQueryAdapter:
             SELECT
                 table_name
             FROM
-                `dq-universal-framework.{dataset}.INFORMATION_SCHEMA.TABLES`
+                `{self.project_id}.{dataset}.INFORMATION_SCHEMA.TABLES`
             """
 
         results = self.client.query(
@@ -604,27 +604,20 @@ class BigQueryAdapter:
         if not results:
             return
             
-        demote_query = f"""
-            UPDATE `{self.project_id}.{results_table_path}`
-            SET is_latest = 'N'
-            WHERE table_name = @full_table_name AND is_latest = 'Y'
-        """
-        demote_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("full_table_name", "STRING", full_target_table_name)
-            ]
-        )
-        self.client.query(demote_query, job_config=demote_config).result()
-        
         rows_to_insert = []
         for row in results:
             rows_to_insert.append({
-                "execution_ts": str(row.execution_ts),
+                "run_id": getattr(row, "run_id", None),
+                "execution_ts": str(getattr(row, "execution_ts", row.execution_ts)),
                 "table_name": str(row.table_name),
                 "column_name": str(row.column_name),
                 "rule_name": str(row.rule_name),
-                "failed_count": int(row.failed_count),
-                "is_latest": "Y"
+                "total_records": getattr(row, "total_records", 0),
+                "passed_records": getattr(row, "passed_records", 0),
+                "failed_records": int(getattr(row, "failed_records", getattr(row, "failed_count", 0))),
+                "pass_percentage": getattr(row, "pass_percentage", 0),
+                "execution_time_ms": getattr(row, "execution_time_ms", 0),
+                "dq_status": getattr(row, "dq_status", "FAIL")
             })
             
         table_ref = self.client.get_table(f"`{self.project_id}.{results_table_path}`".replace("`", ""))

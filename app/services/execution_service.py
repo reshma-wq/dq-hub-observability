@@ -11,14 +11,39 @@ class ExecutionService:
     def __init__(self):
 
         self.bq = BigQueryAdapter(PROJECT_ID)
-        TARGET_DATASET = "thd_bronze"
+        self.target_dataset = TARGET_DATASET
 
     def run_checks(self, table_name):
-
+            # Handle "Run all checks" - if table_name is None, get all tables
+            if table_name is None:
+                print("[run_checks] Running checks for ALL tables...")
+                # Get all tables from the dataset
+                all_tables = self.bq.get_dataset_tables(self.target_dataset)
+                print(f"[run_checks] Found {len(all_tables)} tables: {all_tables}")
+                
+                all_results = []
+                for table in all_tables:
+                    print(f"[run_checks] Running checks for table: {table}")
+                    try:
+                        result = self.run_checks(table)  # Recursively call for each table
+                        all_results.append(result)
+                    except Exception as e:
+                        print(f"[run_checks] Error processing table {table}: {str(e)}")
+                        all_results.append({"table": table, "status": "failed", "error": str(e)})
+                
+                # Return combined results
+                print(f"[run_checks] All tables processed. Total: {len(all_results)}")
+                return {
+                    "status": "completed",
+                    "tables_processed": len(all_tables),
+                    "results": all_results
+                }
+            
+            # Original single-table logic (only executes if table_name is not None)
             run_id = str(uuid.uuid4())
 
             rules = self.bq.get_registered_rules(
-                TARGET_DATASET,
+                self.target_dataset,
                 table_name
             )
 
@@ -29,7 +54,7 @@ class ExecutionService:
             total_rules = len(rules)
 
             self.bq.create_execution_run(
-                TARGET_DATASET,
+                self.target_dataset,
                 {
                     "run_id": run_id,
                     "table_name": table_name,
@@ -89,7 +114,7 @@ class ExecutionService:
                     ) if total_records > 0 else 0
 
                     self.bq.insert_watchtower_result(
-                        TARGET_DATASET,
+                        self.target_dataset,
                         {
 
                             "execution_ts":
@@ -160,6 +185,6 @@ class ExecutionService:
     def get_status(self, run_id):
 
         return self.bq.get_execution_status(
-            TARGET_DATASET,
+            self.target_dataset,
             run_id
         )

@@ -486,7 +486,6 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 // ─────────────────────────────────────────────────────────────
 
 const state = {
-  scanRunning: false,
   scanExecutionLocked: false,
   activeScanRequest: false,
   view: 'overview',
@@ -500,6 +499,8 @@ const state = {
     description: '',
     aiSelected: [],
     editingRuleId: null,
+    sqlCondition: '',
+    params: { v1: '', v2: '' },
   },
   aiExpanded: false,
   aiDismissed: false,
@@ -2145,20 +2146,28 @@ function renderPanel() {
 
   // Generate SQL preview based on form
   let previewSQL = '';
+  let conditionOnly = '';
+
   if (state.addRule.tab === 'ai') {
     previewSQL = "-- Click 'Generate suggestions' to let AI propose rules based on this table's schema and sample data.";
   } else if (state.addRule.tab === 'template') {
     const col = state.addRule.column || '<column>';
     const type = state.addRule.type;
-    if (type === 'not_null') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} IS NULL`;
-    else if (type === 'unique') previewSQL = `SELECT ${col}\nFROM ${t.schema}.${state.currentTable}\nGROUP BY ${col}\nHAVING COUNT(*) > 1`;
-    else if (type === 'in_values') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT IN (<values>)`;
-    else if (type === 'between') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT BETWEEN <min> AND <max>`;
-    else if (type === 'positive') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} <= 0 OR ${col} IS NULL`;
-    else if (type === 'pattern') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT REGEXP_CONTAINS(${col}, r'<pattern>')`;
-    else previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
+    const v1 = state.addRule.params.v1 || (type === 'in_values' ? '<values>' : type === 'between' ? '<min>' : type === 'pattern' ? '<pattern>' : '');
+    const v2 = state.addRule.params.v2 || (type === 'between' ? '<max>' : '');
+
+    if (type === 'not_null') conditionOnly = `${col} IS NOT NULL`;
+    else if (type === 'unique') conditionOnly = `COUNT(*) OVER(PARTITION BY ${col}) = 1`;
+    else if (type === 'in_values') conditionOnly = `${col} IN (${v1})`;
+    else if (type === 'between') conditionOnly = `${col} BETWEEN ${v1} AND ${v2}`;
+    else if (type === 'positive') conditionOnly = `${col} > 0`;
+    else if (type === 'pattern') conditionOnly = `REGEXP_CONTAINS(${col}, r'${v1}')`;
+    else conditionOnly = `<condition>`;
+
+    previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT (${conditionOnly})`;
   } else {
-    previewSQL = state.addRule.description || `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
+    conditionOnly = state.addRule.sqlCondition || `<condition>`;
+    previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT (${conditionOnly})`;
   }
 
   const aiTabContent = `
@@ -2183,9 +2192,30 @@ function renderPanel() {
       </div>
     ` : ''}
 
+    ${state.addRule.tab === 'template' && ['in_values', 'between', 'pattern'].includes(state.addRule.type) ? `
+      <div class="field">
+        <div class="field-label">${state.addRule.type === 'in_values' ? 'Values (comma separated)' : state.addRule.type === 'between' ? 'Minimum' : 'Pattern (regex)'}</div>
+        <input type="text" class="input" id="ar-v1" value="${escapeHtml(state.addRule.params.v1)}" placeholder="${state.addRule.type === 'in_values' ? 'val1, val2, ...' : state.addRule.type === 'between' ? '0' : '^prefix.*'}">
+      </div>
+    ` : ''}
+
+    ${state.addRule.tab === 'template' && state.addRule.type === 'between' ? `
+      <div class="field">
+        <div class="field-label">Maximum</div>
+        <input type="text" class="input" id="ar-v2" value="${escapeHtml(state.addRule.params.v2)}" placeholder="100">
+      </div>
+    ` : ''}
+
+    ${state.addRule.tab === 'custom' ? `
+      <div class="field">
+        <div class="field-label">SQL Condition <span class="hint">required</span></div>
+        <textarea class="textarea" id="ar-condition" placeholder="e.g. column_name IS NOT NULL" rows="3">${escapeHtml(state.addRule.sqlCondition)}</textarea>
+      </div>
+    ` : ''}
+
     <div class="field">
-      <div class="field-label">Description ${state.addRule.tab === 'custom' ? '<span class="hint">used as rule name</span>' : ''}</div>
-      <textarea class="textarea" id="ar-desc" placeholder="${state.addRule.tab === 'custom' ? 'Describe what this rule checks…' : 'What does this rule check?'}" rows="2">${escapeHtml(state.addRule.description)}</textarea>
+      <div class="field-label">Description</div>
+      <textarea class="textarea" id="ar-desc" placeholder="What does this rule check?" rows="2">${escapeHtml(state.addRule.description)}</textarea>
     </div>
 
     <div class="field">
@@ -2216,7 +2246,7 @@ function renderPanel() {
     </div>
     <div class="panel-foot">
       <button class="btn" id="panel-cancel">Cancel</button>
-      <button class="btn btn-primary" id="panel-submit" ${state.addRule.tab === 'ai' || (!state.addRule.column && state.addRule.tab !== 'custom') ? 'disabled' : ''}>${editing ? 'Save changes' : 'Add rule'}</button>
+      <button class="btn btn-primary" id="panel-submit" ${state.addRule.tab === 'ai' || (!state.addRule.column && state.addRule.tab !== 'custom') || (state.addRule.tab === 'custom' && !state.addRule.sqlCondition.trim()) ? 'disabled' : ''}>${editing ? 'Save changes' : 'Add rule'}</button>
     </div>
   `;
 
@@ -2225,6 +2255,9 @@ function renderPanel() {
   });
   $('#ar-column')?.addEventListener('change', (e) => { state.addRule.column = e.target.value; renderPanel(); });
   $('#ar-type')?.addEventListener('change', (e) => { state.addRule.type = e.target.value; renderPanel(); });
+  $('#ar-v1')?.addEventListener('input', (e) => { state.addRule.params.v1 = e.target.value; renderPanel(); });
+  $('#ar-condition')?.addEventListener('input', (e) => { state.addRule.sqlCondition = e.target.value; renderPanel(); });
+  $('#ar-v2')?.addEventListener('input', (e) => { state.addRule.params.v2 = e.target.value; renderPanel(); });
   $('#ar-desc')?.addEventListener('input', (e) => { state.addRule.description = e.target.value; });
   $('#panel-x')?.addEventListener('click', closePanel);
   $('#panel-cancel')?.addEventListener('click', closePanel);
@@ -2237,48 +2270,52 @@ function renderPanel() {
     );
   }
 );
-  $('#panel-submit')?.addEventListener('click', () => {
+  $('#panel-submit')?.addEventListener('click', async () => {
     if (state.addRule.tab === 'ai') return;
-    if (!state.addRule.column) { showToast('Pick a column first', 'error'); return; }
-    const ruleName = state.addRule.description.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
-    if (editing && editingRule) {
-      editingRule.column = state.addRule.column;
-      editingRule.name = ruleName;
-      editingRule.description = state.addRule.description;
-      editingRule.sql = previewSQL;
-      editingRule.status = 'passing';
-      editingRule.violations = 0;
-      if (editingRule.error) delete editingRule.error;
-      t.lastScanFailed = false;
-      showToast(`Rule "${ruleName}" updated`);
-    } else {
-      const newRule = {
-        id: 'new_' + Date.now(),
-        column: state.addRule.column,
-        name: ruleName,
-        status: 'passing',
-        violations: 0,
+    if (!state.addRule.column && state.addRule.tab !== 'custom') { showToast('Pick a column first', 'error'); return; }
+
+    const ruleName = state.addRule.description.trim() || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
+
+    const payload = {
+      table_name: state.currentTable,
+      rules: [{
+        rule_name: ruleName,
+        column_name: state.addRule.column || 'custom_sql',
         description: state.addRule.description,
-        sql: previewSQL,
-      };
-      t.rules.push(newRule);
-      state.recentlyAddedRuleId = newRule.id;
-      showToast(`Rule "${ruleName}" added to ${state.currentTable}`);
-      setTimeout(() => { state.recentlyAddedRuleId = null; render(); }, 3000);
+        sql_condition: `NOT (${conditionOnly})`
+      }]
+    };
+
+    try {
+      const response = await fetch('/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error('Registration failed');
+
+      showToast(`Rule "${ruleName}" registered successfully`);
+
+      closePanel();
+      render();
+    } catch (e) {
+      showToast('Failed to register rule', 'error');
     }
-    closePanel();
-    render();
   });
 }
 
 function openAddRule(tab = 'ai', editId = null) {
   state.addRule.tab = tab;
   state.addRule.editingRuleId = editId;
+  state.addRule.params = { v1: '', v2: '' };
+  state.addRule.sqlCondition = '';
   if (editId) {
     const r = currentTable().rules.find(x => x.id === editId);
     if (r) {
       state.addRule.column = r.column;
       state.addRule.description = r.description || '';
+      state.addRule.sqlCondition = r.sql_condition || '';
       state.addRule.type = '';
     }
   } else {

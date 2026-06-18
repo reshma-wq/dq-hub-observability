@@ -158,16 +158,13 @@ STRICTLY FOLLOW THESE RULES:
 GOOD EXAMPLES:
 
 UNIQUENESS CHECK:
+Note: Condition must identify the actual duplicate rows.
 
 sql_condition:
-COUNT(*) != COUNT(DISTINCT customer_id)
+customer_id IN (SELECT customer_id FROM `{full_table_name}` GROUP BY 1 HAVING COUNT(*) > 1)
 
 BAD EXAMPLE:
-EXISTS (
-  SELECT 1
-  FROM table t2
-  WHERE t2.id = table.id
-)
+COUNT(*) != COUNT(DISTINCT customer_id)
 
 NOT NULL CHECK:
 
