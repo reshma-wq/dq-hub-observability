@@ -34,6 +34,32 @@
   --radius-md:8px;
   --radius-lg:12px;
 }
+
+:root.light-theme{
+  --bg-base:#FFFFFF;
+  --bg-elevated:#F8F9FA;
+  --bg-elevated-2:#F0F2F5;
+  --bg-hover:#E8EAEF;
+  --border:#E0E4E8;
+  --border-strong:#D0D4DB;
+  --text-primary:#1F2937;
+  --text-secondary:#6B7280;
+  --text-tertiary:#9CA3AF;
+  --accent:#FF4B4B;
+  --accent-hover:#E63E3E;
+  --accent-soft:rgba(255,75,75,0.12);
+  --success:#00C896;
+  --success-soft:rgba(0,200,150,0.12);
+  --danger:#F0524C;
+  --danger-soft:rgba(240,82,76,0.12);
+  --warning:#F5A623;
+  --warning-soft:rgba(245,166,35,0.12);
+  --info:#4A8AE8;
+  --code-green:#3DD68C;
+  --radius-sm:6px;
+  --radius-md:8px;
+  --radius-lg:12px;
+}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{
   background:var(--bg-base);
@@ -459,6 +485,21 @@ input,select,textarea{font-family:inherit;font-size:inherit}
   .detail-layout{grid-template-columns:1fr}
   .sidebar{position:static}
 }
+
+/* Theme toggle */
+.theme-toggle{
+  background:transparent;
+  border:0.5px solid var(--border-strong);
+  width:30px;height:30px;border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-secondary);transition:all .15s;
+  cursor:pointer;
+}
+.theme-toggle:hover{
+  color:var(--text-primary);
+  background:var(--bg-elevated-2);
+  border-color:var(--border-strong);
+}
 </style>
 </head>
 <body>
@@ -575,6 +616,47 @@ function totalIncidents() {
   return n;
 }
 function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.classList.contains('light-theme');
+  
+  if (isDark) {
+    html.classList.remove('light-theme');
+    localStorage.setItem('theme', 'dark');
+  } else {
+    html.classList.add('light-theme');
+    localStorage.setItem('theme', 'light');
+  }
+  
+  updateThemeIcon();
+}
+
+function updateThemeIcon() {
+  const themeToggle = $('#theme-toggle');
+  if (!themeToggle) return;
+  
+  const html = document.documentElement;
+  const isDark = html.classList.contains('light-theme');
+  const icon = themeToggle.querySelector('i');
+  
+  if (icon) {
+    icon.className = isDark ? 'ti ti-sun' : 'ti ti-moon-2';
+  }
+}
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  const html = document.documentElement;
+  
+  if (savedTheme === 'light') {
+    html.classList.add('light-theme');
+  } else {
+    html.classList.remove('light-theme');
+  }
+  
+  updateThemeIcon();
+}
 
 function showToast(msg, type = 'success') {
   const t = $('#toast');
@@ -1131,6 +1213,9 @@ function renderTopbar() {
         ${totalIncidents() > 0 ? `<span class="bell-badge">${totalIncidents()}</span>` : ''}
       </div>
       <i class="ti ti-settings" title="Settings"></i>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme">
+        <i class="ti ti-moon-2"></i>
+      </button>
       <div class="avatar">JD</div>
     </div>
   `;
@@ -1142,6 +1227,11 @@ function renderTopbar() {
       render();
     });
   });
+
+  const themeToggle = $('#theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', toggleTheme);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1593,12 +1683,7 @@ async function renderTableDetail() {
       </div>
     `;
   } else if (st === 'healthy' && t.rules.length > 0) {
-    bannerHTML = `
-      <div class="ok-banner">
-        <i class="ti ti-circle-check"></i>
-        <span>All checks passing. Next scheduled scan in 13 minutes.</span>
-      </div>
-    `;
+    bannerHTML = '';
   }
 
   const inlineStatsHTML = `
@@ -2750,6 +2835,8 @@ function render() {
 // INIT
 // ─────────────────────────────────────────────────────────────
 
+initTheme();
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.panel) closePanel();
 });
@@ -2762,3 +2849,4 @@ loadDashboardSummary().then(() => {
 
 </body>
 </html>
+

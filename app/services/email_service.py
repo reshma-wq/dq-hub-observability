@@ -56,7 +56,8 @@ class EmailNotificationService:
     def __init__(self):
         # Loads email credentials from .env file
         # Load and clean environment variables (remove quotes if present)
-        self.recipient_email = os.getenv("EMAIL_RECIPIENT", "").strip('"').strip("'")
+        recipient_string = os.getenv("EMAIL_RECIPIENT", "").strip('"').strip("'")
+        self.recipient_emails = [email.strip() for email in recipient_string.split(',') if email.strip()]
         self.sender_email = os.getenv("EMAIL_SENDER", "").strip('"').strip("'")
         self.sender_password = os.getenv("EMAIL_PASSWORD", "").strip('"').strip("'")
         self.dashboard_url = os.getenv("DASHBOARD_URL", "").strip('"').strip("'")
@@ -65,11 +66,11 @@ class EmailNotificationService:
         
         # Validate email credentials are loaded
         print(f"[EmailService Init] sender_email: {'✓ Loaded: ' + self.sender_email if self.sender_email else '✗ NOT LOADED'}")
-        print(f"[EmailService Init] recipient_email: {'✓ Loaded: ' + self.recipient_email if self.recipient_email else '✗ NOT LOADED'}")
+        print(f"[EmailService Init] recipient_emails: {'✓ Loaded: ' + str(self.recipient_emails) if self.recipient_emails else '✗ NOT LOADED'}")
         print(f"[EmailService Init] sender_password: {'✓ Loaded (length: ' + str(len(self.sender_password)) + ')' if self.sender_password else '✗ NOT LOADED'}")
         print(f"[EmailService Init] dashboard_url: {self.dashboard_url if self.dashboard_url else 'NOT SET'}")
         
-        if not self.sender_email or not self.sender_password or not self.recipient_email:
+        if not self.sender_email or not self.sender_password or not self.recipient_emails:
             print("[EmailService CRITICAL] Email credentials missing! Check .env file:")
             print("  - EMAIL_SENDER")
             print("  - EMAIL_PASSWORD") 
@@ -241,12 +242,12 @@ class EmailNotificationService:
                 
                 priority_table_rows += f"""
                 <tr>
-                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: left;">{table_name}</td>
-                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: left;">{project_id}</td>
-                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: left;">{dataset_name}</td>
-                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: center;">{total_rules}</td>
-                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: center;">{failed_rules}</td>
-                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: center;">{health_pct:.1f}%</td>
+                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: left; background-color: #F5F5F5;">{table_name}</td>
+                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: left; background-color: #F5F5F5;">{project_id}</td>
+                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: left; background-color: #F5F5F5;">{dataset_name}</td>
+                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; background-color: #F5F5F5;">{total_rules}</td>
+                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; background-color: #F5F5F5;">{failed_rules}</td>
+                    <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; background-color: #F5F5F5;">{health_pct:.1f}%</td>
                 </tr>
                 """
         else:
@@ -273,20 +274,20 @@ class EmailNotificationService:
                 
                 <table style="width: 100%; border-collapse: collapse; margin: 0 0 20px 0; border: 1px solid #999999;">
                     <tr>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">DQ Health Score (%)</th>
                         <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Total Rules Evaluated</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Rules Passed</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Rules Failed</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Tables Monitored</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Tables Impacted</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Overall DQ Health</th>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Passed Rules</th>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Failed Rules</th>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Monitored Tables</th>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Impacted Tables</th>
                     </tr>
                     <tr>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px;">{executive_summary['total_rules']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px;">{executive_summary['passed_rules']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px;">{executive_summary['failed_rules']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px;">{executive_summary['total_tables']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px;">{len(priority_tables)}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px;">{executive_summary['health_pct']:.1f}%</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['health_pct']:.1f}%</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['total_rules']}</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['passed_rules']}</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['failed_rules']}</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['total_tables']}</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{len(priority_tables)}</td>
                     </tr>
                 </table>
                 
@@ -299,9 +300,9 @@ class EmailNotificationService:
                         <th style="padding: 10px; border: 1px solid #999999; text-align: left; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Table Name</th>
                         <th style="padding: 10px; border: 1px solid #999999; text-align: left; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Project ID</th>
                         <th style="padding: 10px; border: 1px solid #999999; text-align: left; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Dataset Name</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Total Rules</th>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Total Rules Evaluated</th>
                         <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Failed Rules</th>
-                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Health %</th>
+                        <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">DQ Health Score (%)</th>
                     </tr>
                     {priority_table_rows}
                 </table>
@@ -310,7 +311,6 @@ class EmailNotificationService:
                 
                 <ul style="margin: 0 0 16px 0; padding-left: 20px; font-size: 16px;">
                     <li style="margin: 6px 0;">Excel Report: Detailed rule-level results and failure analysis.</li>
-                    <li style="margin: 6px 0;">Interactive Dashboard: <a href="{self.dashboard_url}" style="color: #0066cc; text-decoration: none;">{self.dashboard_url}</a></li>
                 </ul>
                 
                 <p style="margin: 0 0 16px 0; font-size: 16px;">For detailed analysis and rule-level results, please refer to the attached report and dashboard.</p>
@@ -331,13 +331,13 @@ class EmailNotificationService:
         try:
             print(f"📧 Preparing email...")
             print(f"   Sender: {self.sender_email}")
-            print(f"   Recipient: {self.recipient_email}")
+            print(f"   Recipients: {', '.join(self.recipient_emails)}")
             
             # Create email message
             message = MIMEMultipart()
             message["Subject"] = f"DQ Health Report | {get_ist_time().strftime('%d-%b-%Y')}"
             message["From"] = self.sender_email
-            message["To"] = self.recipient_email
+            message["To"] = ', '.join(self.recipient_emails)
             
             # Attach HTML content
             html_part = MIMEText(html_content, "html")
@@ -379,10 +379,10 @@ class EmailNotificationService:
                 print(f"✅ Connected to SMTP server")
                 server.login(self.sender_email, self.sender_password)
                 print(f"✅ Logged in successfully")
-                server.sendmail(self.sender_email, self.recipient_email, message.as_string())
+                server.sendmail(self.sender_email, self.recipient_emails, message.as_string())
                 print(f"✅ Email message sent")
             
-            print(f"✅✅✅ Email delivered successfully to {self.recipient_email}")
+            print(f"✅✅✅ Email delivered successfully to {', '.join(self.recipient_emails)}")
             return True
         
         except smtplib.SMTPAuthenticationError as e:

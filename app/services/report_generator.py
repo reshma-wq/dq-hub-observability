@@ -270,7 +270,7 @@ class ReportGenerator:
         ws_summary[f"A{row}"].font = Font(bold=True, size=11, color="2C5282")
         ws_summary[f"A{row}"].fill = PatternFill(start_color="E8F0F8", end_color="E8F0F8", fill_type="solid")
         ws_summary.merge_cells(f"A{row}:F{row}")
-        ws_summary[f"A{row}"].alignment = left_align
+        ws_summary[f"A{row}"].alignment = center_align
         ws_summary.row_dimensions[row].height = 16
         
         row += 1
@@ -299,7 +299,7 @@ class ReportGenerator:
         impacted_tables = len(summary_df[summary_df["Failed Checks"] > 0]) if not summary_df.empty else 0
         
         # Horizontal Headers (Metrics as columns)
-        headers = ["Total Rules Evaluated", "Rules Passed", "Rules Failed", "Tables Monitored", "Tables Impacted", "Overall DQ Health"]
+        headers = ["DQ Health Score (%)", "Total Rules Evaluated", "Passed Rules", "Failed Rules", "Monitored Tables", "Impacted Tables"]
         for col, header in enumerate(headers, 1):
             cell = ws_summary.cell(row=row, column=col)
             cell.value = header
@@ -307,11 +307,12 @@ class ReportGenerator:
             cell.font = header_font
             cell.border = border
             cell.alignment = center_align
+            cell.alignment = center_align
         
         row += 1
         
         # Horizontal Values (single row)
-        values = [total_rules, passed_rules, failed_rules, table_count, impacted_tables, dq_health]
+        values = [dq_health, total_rules, passed_rules, failed_rules, table_count, impacted_tables]
         for col, value in enumerate(values, 1):
             cell = ws_summary.cell(row=row, column=col)
             cell.value = value
@@ -326,7 +327,7 @@ class ReportGenerator:
         ws_summary[f"A{row}"].font = Font(bold=True, size=11, color="2C5282")
         ws_summary[f"A{row}"].fill = PatternFill(start_color="E8F0F8", end_color="E8F0F8", fill_type="solid")
         ws_summary.merge_cells(f"A{row}:I{row}")
-        ws_summary[f"A{row}"].alignment = left_align
+        ws_summary[f"A{row}"].alignment = center_align
         ws_summary.row_dimensions[row].height = 16
         
         row += 1
@@ -340,6 +341,7 @@ class ReportGenerator:
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.border = border
+                cell.alignment = center_align
                 cell.alignment = center_align
             
             row += 1
@@ -390,7 +392,7 @@ class ReportGenerator:
         ws_summary[f"A{row}"].font = Font(bold=True, size=11, color="2C5282")
         ws_summary[f"A{row}"].fill = PatternFill(start_color="E8F0F8", end_color="E8F0F8", fill_type="solid")
         ws_summary.merge_cells(f"A{row}:F{row}")
-        ws_summary[f"A{row}"].alignment = left_align
+        ws_summary[f"A{row}"].alignment = center_align
         ws_summary.row_dimensions[row].height = 16
         
         row += 1
@@ -401,13 +403,14 @@ class ReportGenerator:
             
             if not burnout_df.empty:
                 # Headers
-                headers = ["Project ID", "Dataset Name", "Table Name", "Total Rules", "Failed Rules", "Health %"]
+                headers = ["Project ID", "Dataset Name", "Table Name", "Total Rules Evaluated", "Failed Rules", "DQ Health Score (%)"]
                 for col, header in enumerate(headers, 1):
                     cell = ws_summary.cell(row=row, column=col)
                     cell.value = header
                     cell.fill = header_fill
                     cell.font = header_font
                     cell.border = border
+                    cell.alignment = center_align
                     cell.alignment = center_align
                 
                 row += 1
@@ -492,6 +495,7 @@ class ReportGenerator:
             cell.fill = header_fill
             cell.font = header_font
             cell.border = border
+            cell.alignment = center_align
             cell.alignment = center_align
         
         # Data
