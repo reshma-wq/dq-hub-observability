@@ -8,8 +8,6 @@ class RuleService:
 
     def __init__(self):
         self.bq = BigQueryAdapter(PROJECT_ID)
-        self.project_id = PROJECT_ID
-        self.client = self.bq.client
 
     def compile_sql(self, table_name, rule):
 
@@ -107,6 +105,7 @@ class RuleService:
                 "table_name": table_name,
                 "column_name": rule.column_name,
                 "rule_name": rule.rule_name,
+                "rule_category":rule.rule_category,
                 "description": rule.description,
                 "sql_condition": rule.sql_condition,
                 "compiled_sql": compiled_sql,

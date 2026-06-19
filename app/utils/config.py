@@ -6,6 +6,7 @@ load_dotenv()
 PROJECT_ID = os.getenv("PROJECT_ID")
 LOCATION = os.getenv("LOCATION")
 TARGET_DATASET = os.getenv("TARGET_DATASET")
+DQ_HUB_DATASET = os.getenv("DQ_HUB_DATASET")
 
 MODEL_NAME = os.getenv(
     "MODEL_NAME",

@@ -287,8 +287,8 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 .ai-exp-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}
 .ai-exp-title i{color:var(--info);font-size:16px}
 .ai-exp-title .meta{font-size:11px;color:var(--text-secondary);font-weight:400}
-.ai-grid-head{display:grid;grid-template-columns:34px 140px 1fr 1fr;gap:12px;padding:9px 16px;background:var(--bg-elevated-2);font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:500}
-.ai-grid-row{display:grid;grid-template-columns:34px 140px 1fr 1fr;gap:12px;padding:12px 16px;font-size:12px;align-items:center;border-top:0.5px solid var(--border)}
+.ai-grid-head{display:grid;grid-template-columns:34px 120px 140px 1fr 1fr;gap:12px;padding:9px 16px;background:var(--bg-elevated-2);font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:500}
+.ai-grid-row{display:grid;grid-template-columns:34px 120px 140px 1fr 1fr;gap:12px;padding:12px 16px;font-size:12px;align-items:center;border-top:0.5px solid var(--border)}
 .ai-grid-row input[type=checkbox]{accent-color:var(--accent)}
 .ai-sug-col{font-family:'IBM Plex Mono',monospace;color:var(--text-secondary)}
 .ai-sug-name{font-weight:500}
@@ -486,6 +486,7 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 // ─────────────────────────────────────────────────────────────
 
 const state = {
+  scanRunning: false,
   scanExecutionLocked: false,
   activeScanRequest: false,
   view: 'overview',
@@ -595,6 +596,26 @@ function highlightSQL(sql) {
     .replace(/&lt;column&gt;|&lt;condition&gt;|&lt;value&gt;/g, '<span class="pl">$&</span>');
 }
 
+function getCategoryBadge(category) {
+
+  const colorMap = {
+    TECHNICAL: "pill-info",
+    BUSINESS: "pill-success",
+    DOMAIN: "pill-warning",
+    CROSS_FIELD: "pill-danger",
+    CROSS_TABLE: "pill-info"
+  };
+
+  return `
+    <span class="pill ${
+      colorMap[category] || "pill-info"
+    }">
+      ${category}
+    </span>
+  `;
+}
+
+
 async function generateAIRules(
   tableName
 ) {
@@ -636,6 +657,9 @@ async function generateAIRules(
 
         name:
           rule.rule_name,
+
+        category:
+          rule.rule_category,
 
         description:
           rule.description,
@@ -999,6 +1023,9 @@ async function registerSelectedRules(
           rule_name:
             rule.name,
 
+          rule_category:
+            rule.category,
+
           column_name:
             rule.column,
 
@@ -1011,7 +1038,7 @@ async function registerSelectedRules(
     };
 
     const response = await fetch(
-      `/rules`,
+      `/rules/`,
       {
 
         method: "POST",
@@ -1311,7 +1338,8 @@ function renderOverview() {
           <h2>Tables</h2>
           <div class="sub">Pick one to view rules and recent activity</div>
         </div>
-        <button class="btn"><i class="ti ti-plus"></i>Add table</button>
+        <button class="btn" id="sync-kh-btn"><i class="ti ti-refresh"></i>
+      Sync Metadata</button>
       </div>
 
       <div>
@@ -1451,6 +1479,59 @@ function renderOverview() {
         async () => {
 
           await refreshDashboard();
+        };
+    }
+
+  const syncKhBtn =
+  document.getElementById(
+    "sync-kh-btn"
+  );
+
+    if (syncKhBtn) {
+
+      syncKhBtn.onclick =
+        async () => {
+
+          try {
+
+            showToast(
+              "Syncing Knowledge Hub...",
+              "info"
+            );
+
+            const response =
+              await fetch(
+                "/knowledge-hub/sync",
+                {
+                  method: "POST"
+                }
+              );
+
+            if (!response.ok) {
+
+              throw new Error(
+                "Knowledge Hub sync failed"
+              );
+            }
+
+            const result =
+              await response.json();
+
+            showToast(
+              result.message ||
+              "Knowledge Hub synchronized",
+              "success"
+            );
+
+          } catch (error) {
+
+            console.error(error);
+
+            showToast(
+              "Knowledge Hub sync failed",
+              "error"
+            );
+          }
         };
     }
 }
@@ -1612,6 +1693,32 @@ async function renderTableDetail() {
       </div>
     `;
   }
+  const technical =
+    t.aiSuggestions.filter(
+      r => r.category === "TECHNICAL"
+    ).length;
+
+  const business =
+    t.aiSuggestions.filter(
+      r => r.category === "BUSINESS"
+    ).length;
+
+  const domain =
+    t.aiSuggestions.filter(
+      r => r.category === "DOMAIN"
+    ).length;
+
+  const crossField =
+    t.aiSuggestions.filter(
+      r => r.category === "CROSS_FIELD"
+    ).length;
+
+  const crossTable =
+    t.aiSuggestions.filter(
+      r => r.category === "CROSS_TABLE"
+    ).length;
+
+
 
   let aiHTML = '';
   if (!state.aiDismissed && t.aiSuggestions.length > 0) {
@@ -1619,11 +1726,53 @@ async function renderTableDetail() {
       aiHTML = `
         <div class="ai-expanded">
           <div class="ai-exp-head">
-            <div class="ai-exp-title">
-              <i class="ti ti-sparkles"></i>
-              <span>AI-suggested rules</span>
-              <span class="meta">based on schema and sample data</span>
-            </div>
+
+  <div>
+
+    <div class="ai-exp-title">
+
+      <i class="ti ti-sparkles"></i>
+
+      <span>AI-suggested rules</span>
+
+      <span class="meta">
+        based on schema and sample data
+      </span>
+
+    </div>
+
+    <div
+      style="
+        display:flex;
+        gap:8px;
+        margin-top:8px;
+        flex-wrap:wrap;
+      "
+    >
+
+      <span class="pill pill-info">
+        Technical: ${technical}
+      </span>
+
+      <span class="pill pill-success">
+        Business: ${business}
+      </span>
+
+      <span class="pill pill-warning">
+        Domain: ${domain}
+      </span>
+
+      <span class="pill pill-danger">
+        Cross Field: ${crossField}
+      </span>
+
+      <span class="pill pill-info">
+        Cross Table: ${crossTable}
+      </span>
+
+    </div>
+
+  </div>
             <div style="display:flex;gap:10px;align-items:center">
               <button class="btn btn-sm btn-ghost" id="ai-regenerate"><i class="ti ti-refresh"></i>Regenerate</button>
               <button class="btn btn-sm btn-ghost" id="ai-collapse"><i class="ti ti-chevron-up"></i></button>
@@ -1631,6 +1780,7 @@ async function renderTableDetail() {
           </div>
           <div class="ai-grid-head">
             <div><input type="checkbox" id="ai-sel-all"></div>
+            <div>Category</div>
             <div>Column</div>
             <div>Rule</div>
             <div>SQL preview</div>
@@ -1638,6 +1788,7 @@ async function renderTableDetail() {
           ${t.aiSuggestions.map(s => `
             <div class="ai-grid-row">
               <div><input type="checkbox" class="ai-sel" data-sug="${s.id}" ${state.addRule.aiSelected.includes(s.id) ? 'checked' : ''}></div>
+              <div>${getCategoryBadge(s.category)}</div>
               <div class="ai-sug-col">${s.column}</div>
               <div>
                 <div class="ai-sug-name">${s.name}</div>
@@ -2146,8 +2297,6 @@ function renderPanel() {
 
   // Generate SQL preview based on form
   let previewSQL = '';
-  let conditionOnly = '';
-
   if (state.addRule.tab === 'ai') {
     previewSQL = "-- Click 'Generate suggestions' to let AI propose rules based on this table's schema and sample data.";
   } else if (state.addRule.tab === 'template') {
@@ -2155,19 +2304,15 @@ function renderPanel() {
     const type = state.addRule.type;
     const v1 = state.addRule.params.v1 || (type === 'in_values' ? '<values>' : type === 'between' ? '<min>' : type === 'pattern' ? '<pattern>' : '');
     const v2 = state.addRule.params.v2 || (type === 'between' ? '<max>' : '');
-
-    if (type === 'not_null') conditionOnly = `${col} IS NOT NULL`;
-    else if (type === 'unique') conditionOnly = `COUNT(*) OVER(PARTITION BY ${col}) = 1`;
-    else if (type === 'in_values') conditionOnly = `${col} IN (${v1})`;
-    else if (type === 'between') conditionOnly = `${col} BETWEEN ${v1} AND ${v2}`;
-    else if (type === 'positive') conditionOnly = `${col} > 0`;
-    else if (type === 'pattern') conditionOnly = `REGEXP_CONTAINS(${col}, r'${v1}')`;
-    else conditionOnly = `<condition>`;
-
-    previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT (${conditionOnly})`;
+    if (type === 'not_null') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} IS NULL`;
+    else if (type === 'unique') previewSQL = `SELECT ${col}\nFROM ${t.schema}.${state.currentTable}\nGROUP BY ${col}\nHAVING COUNT(*) > 1`;
+    else if (type === 'in_values') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT IN (${v1})`;
+    else if (type === 'between') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT BETWEEN ${v1} AND ${v2}`;
+    else if (type === 'positive') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} <= 0 OR ${col} IS NULL`;
+    else if (type === 'pattern') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT REGEXP_CONTAINS(${col}, r'${v1}')`;
+    else previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
   } else {
-    conditionOnly = state.addRule.sqlCondition || `<condition>`;
-    previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT (${conditionOnly})`;
+    previewSQL = state.addRule.sqlCondition || `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
   }
 
   const aiTabContent = `
@@ -2214,8 +2359,8 @@ function renderPanel() {
     ` : ''}
 
     <div class="field">
-      <div class="field-label">Description</div>
-      <textarea class="textarea" id="ar-desc" placeholder="What does this rule check?" rows="2">${escapeHtml(state.addRule.description)}</textarea>
+      <div class="field-label">Description ${state.addRule.tab === 'custom' ? '<span class="hint">used as rule name</span>' : ''}</div>
+      <textarea class="textarea" id="ar-desc" placeholder="${state.addRule.tab === 'custom' ? 'Describe what this rule checks…' : 'What does this rule check?'}" rows="2">${escapeHtml(state.addRule.description)}</textarea>
     </div>
 
     <div class="field">
@@ -2272,34 +2417,82 @@ function renderPanel() {
 );
   $('#panel-submit')?.addEventListener('click', async () => {
     if (state.addRule.tab === 'ai') return;
-    if (!state.addRule.column && state.addRule.tab !== 'custom') { showToast('Pick a column first', 'error'); return; }
-
-    const ruleName = state.addRule.description.trim() || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
-
-    const payload = {
-      table_name: state.currentTable,
-      rules: [{
-        rule_name: ruleName,
-        column_name: state.addRule.column || 'custom_sql',
-        description: state.addRule.description,
-        sql_condition: `NOT (${conditionOnly})`
-      }]
-    };
-
+    if (!state.addRule.column) { showToast('Pick a column first', 'error'); return; }
+    const ruleName = state.addRule.description.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
+    
     try {
-      const response = await fetch('/rules', {
+      // Extract just the WHERE condition from previewSQL
+      let sqlCondition = previewSQL;
+      if (sqlCondition.includes('WHERE ')) {
+        sqlCondition = sqlCondition.substring(sqlCondition.indexOf('WHERE ') + 6).trim();
+      } else if (sqlCondition.includes('HAVING ')) {
+        sqlCondition = sqlCondition.substring(sqlCondition.indexOf('HAVING ') + 7).trim();
+      }
+
+      // For Custom SQL only: invert the condition by wrapping with NOT
+      if (state.addRule.tab === 'custom') {
+        sqlCondition = `NOT (${sqlCondition})`;
+      }
+
+      // Prepare rule data for backend
+      const rulePayload = {
+        table_name: state.currentTable,
+        rules: [
+          {
+            rule_name: ruleName,
+            rule_category: state.addRule.tab === 'template' ? 'TECHNICAL' : 'CUSTOM',
+            column_name: state.addRule.column,
+            description: state.addRule.description,
+            sql_condition: sqlCondition
+          }
+        ]
+      };
+
+      // Send to backend
+      const response = await fetch('/rules/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(rulePayload)
       });
 
-      if (!response.ok) throw new Error('Registration failed');
+      if (!response.ok) {
+        throw new Error('Failed to register rule in backend');
+      }
 
-      showToast(`Rule "${ruleName}" registered successfully`);
+      const result = await response.json();
 
+      // Update frontend state
+      if (editing && editingRule) {
+        editingRule.column = state.addRule.column;
+        editingRule.name = ruleName;
+        editingRule.description = state.addRule.description;
+        editingRule.sql = previewSQL;
+        editingRule.status = 'passing';
+        editingRule.violations = 0;
+        editingRule.rule_category = state.addRule.tab === 'template' ? 'TECHNICAL' : 'CUSTOM';
+        if (editingRule.error) delete editingRule.error;
+        t.lastScanFailed = false;
+        showToast(`Rule "${ruleName}" updated`);
+      } else {
+        const newRule = {
+          id: 'new_' + Date.now(),
+          column: state.addRule.column,
+          name: ruleName,
+          status: 'passing',
+          violations: 0,
+          description: state.addRule.description,
+          sql: previewSQL,
+          rule_category: state.addRule.tab === 'template' ? 'TECHNICAL' : 'CUSTOM',
+        };
+        t.rules.push(newRule);
+        state.recentlyAddedRuleId = newRule.id;
+        showToast(`Rule "${ruleName}" added to ${state.currentTable}`);
+        setTimeout(() => { state.recentlyAddedRuleId = null; render(); }, 3000);
+      }
       closePanel();
       render();
-    } catch (e) {
+    } catch (error) {
+      console.error('Error registering rule:', error);
       showToast('Failed to register rule', 'error');
     }
   });
