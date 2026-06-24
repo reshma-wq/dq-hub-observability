@@ -104,6 +104,7 @@ ENTERPRISE KNOWLEDGE HUB
 {knowledge_json}
 
 ==================================================
+
 KNOWLEDGE HUB USAGE
 ==================================================
 
@@ -178,17 +179,60 @@ Governance rules must NEVER be replaced by profiling rules.
 
 PRIORITY 2 — BUSINESS RULES
 
+MANDATORY: Generate business rules for EVERY logical relationship.
+
+When these column patterns exist, ALWAYS generate these business rules:
+
+SPEND + BUDGET Pattern:
+If columns contain: spend, budget, cost, amount
+→ MUST generate: spend > budget, spend > 0, budget > 0
+
+FUNNEL Pattern:
+If columns contain: impressions, clicks, conversions
+→ MUST generate: clicks > impressions, conversions > clicks, impressions > 0, clicks >= 0, conversions >= 0
+
+DATE Pattern:
+If columns contain: start_date, end_date, created_date, updated_date, expiry_date
+→ MUST generate: start_date > end_date, created_date <= updated_date, expiry_date >= CURRENT_DATE()
+
+REVENUE + COST Pattern:
+If columns contain: revenue, cost, profit, gross_margin
+→ MUST generate: revenue > cost, profit > 0, gross_margin > 0 AND gross_margin <= 100
+
+INVENTORY + QUANTITY Pattern:
+If columns contain: inventory, quantity, stock, units, available, sold
+→ MUST generate: inventory >= 0, quantity >= 0, units_sold <= total_units, available >= 0
+
+TRANSACTION + REFUND Pattern:
+If columns contain: transaction_amount, order_amount, refund_amount, discount
+→ MUST generate: transaction_amount > 0, refund_amount <= transaction_amount, discount >= 0 AND discount <= original_amount
+
+RATE/PERCENTAGE Pattern:
+If columns contain: rate, percentage, conversion_rate, click_rate, success_rate, completion_rate, efficacy_rate
+→ MUST generate: rate >= 0 AND rate <= 100, completion_rate >= 0 AND completion_rate <= 100
+
+MINIMUM BUSINESS RULE REQUIREMENTS:
+
+For EVERY table, generate MINIMUM as the count of technical rules 
+
+
 Examples:
 
 spend > budget
-
 clicks > impressions
-
 conversions > clicks
-
 start_date > end_date
+revenue > cost
+profit > 0
+inventory >= 0
+transaction_amount > 0
+refund_amount <= transaction_amount
+rating >= 0 AND rating <= 5
+conversion_rate >= 0 AND conversion_rate <= 100
 
 Business rules are mandatory whenever business meaning exists.
+
+DO NOT skip business rules under any circumstances.
 
 --------------------------------------------------
 
