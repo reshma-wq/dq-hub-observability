@@ -5,39 +5,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from google.cloud import bigquery
-from app.utils.config import PROJECT_ID, TARGET_DATASET
-
-# Load environment variables from .env file
-# Try multiple locations in case working directory varies
-import sys
-from pathlib import Path
-
-# Get the project root (parent of app directory)
-app_dir = Path(__file__).parent.parent  # app/services -> app
-project_root = app_dir.parent  # app -> project root
-
-env_paths = [
-    project_root / '.env',
-    app_dir / '.env',
-    Path('.env'),
-    Path('./.env'),
-]
-
-env_loaded = False
-for env_path in env_paths:
-    if env_path.exists():
-        load_dotenv(str(env_path))
-        print(f"[Email Service] ✓ Loaded .env from: {env_path.absolute()}")
-        env_loaded = True
-        break
-
-if not env_loaded:
-    # If no .env found, still try to load from system environment
-    load_dotenv()
-    print(f"[Email Service] ⚠ No .env file found in standard locations, using system environment")
-    print(f"[Email Service]   Checked: {[str(p) for p in env_paths]}")
+from app.utils.config import PROJECT_ID, TARGET_DATASET, EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENT
 
 # Indian Standard Time is UTC+5:30
 def get_ist_time():
@@ -54,13 +23,11 @@ class EmailNotificationService:
     """
 
     def __init__(self):
-        # Loads email credentials from .env file
-        # Load and clean environment variables (remove quotes if present)
-        recipient_string = os.getenv("EMAIL_RECIPIENT", "").strip('"').strip("'")
-        self.recipient_emails = [email.strip() for email in recipient_string.split(',') if email.strip()]
-        self.sender_email = os.getenv("EMAIL_SENDER", "").strip('"').strip("'")
-        self.sender_password = os.getenv("EMAIL_PASSWORD", "").strip('"').strip("'")
-        self.dashboard_url = os.getenv("DASHBOARD_URL", "").strip('"').strip("'")
+        # Load credentials from GCP Secret Manager (via config.py)
+        self.sender_email = EMAIL_SENDER
+        self.sender_password = EMAIL_PASSWORD
+        self.recipient_emails = [email.strip() for email in EMAIL_RECIPIENT.split(',') if email.strip()]
+        self.dashboard_url = os.getenv("DASHBOARD_URL", "https://dq-hub.company.com")
         self.bq_client = bigquery.Client(project=PROJECT_ID)
         self.dataset = TARGET_DATASET
         
@@ -71,7 +38,7 @@ class EmailNotificationService:
         print(f"[EmailService Init] dashboard_url: {self.dashboard_url if self.dashboard_url else 'NOT SET'}")
         
         if not self.sender_email or not self.sender_password or not self.recipient_emails:
-            print("[EmailService CRITICAL] Email credentials missing! Check .env file:")
+            print("[EmailService CRITICAL] Email credentials missing! Check Secret Manager:")
             print("  - EMAIL_SENDER")
             print("  - EMAIL_PASSWORD") 
             print("  - EMAIL_RECIPIENT")
@@ -253,7 +220,8 @@ class EmailNotificationService:
         else:
             priority_table_rows = "<tr><td colspan='6' style='padding: 10px; border: 1px solid #cccccc; text-align: center;'>All tables healthy - No issues detected</td></tr>"
         
-        html_content = f"""
+        html_content = (
+            """
         <html>
             <head>
                 <meta charset="UTF-8">
@@ -263,10 +231,10 @@ class EmailNotificationService:
                 
                 <p style="margin: 0 0 12px 0; font-size: 16px;">Hello Team,</p>
                 
-                <p style="margin: 0 0 8px 0; font-size: 16px; color: #666666;"><strong>Project ID:</strong> {PROJECT_ID}</p>
-                <p style="margin: 0 0 12px 0; font-size: 16px; color: #666666;"><strong>Dataset Name:</strong> {self.dataset}</p>
+                <p style="margin: 0 0 8px 0; font-size: 16px; color: #666666;"><strong>Project ID:</strong> """ + PROJECT_ID + """</p>
+                <p style="margin: 0 0 12px 0; font-size: 16px; color: #666666;"><strong>Dataset Name:</strong> """ + self.dataset + """</p>
                 
-                <p style="margin: 0 0 12px 0; font-size: 16px;">Please find attached the DQ Health Report for {report_date}.</p>
+                <p style="margin: 0 0 12px 0; font-size: 16px;">Please find attached the DQ Health Report for """ + report_date + """.</p>
                 
                 <p style="margin: 0 0 16px 0; font-size: 16px;">This report provides a comprehensive overview of current data quality metrics. Review the Executive Summary below for key insights and the DQ Outages Requiring Attention section to identify impacted tables.</p>
                 
@@ -282,16 +250,16 @@ class EmailNotificationService:
                         <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Impacted Tables</th>
                     </tr>
                     <tr>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['health_pct']:.1f}%</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['total_rules']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['passed_rules']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['failed_rules']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{executive_summary['total_tables']}</td>
-                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">{len(priority_tables)}</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">""" + f"{executive_summary['health_pct']:.1f}%" + """</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">""" + str(executive_summary['total_rules']) + """</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">""" + str(executive_summary['passed_rules']) + """</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">""" + str(executive_summary['failed_rules']) + """</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">""" + str(executive_summary['total_tables']) + """</td>
+                        <td style="padding: 10px; border: 1px solid #cccccc; text-align: center; font-size: 16px; background-color: #F5F5F5;">""" + str(len(priority_tables)) + """</td>
                     </tr>
                 </table>
                 
-                <p style="margin: 12px 0 0 0; font-size: 16px; font-style: italic; color: #1a1a1a;">Key Insight: Overall DQ health stands at {executive_summary['health_pct']:.1f}%, with {executive_summary['failed_rules']} failed rules impacting {len(priority_tables)} tables. Immediate investigation and remediation are recommended to prevent further data quality degradation.</p>
+                <p style="margin: 12px 0 0 0; font-size: 16px; font-style: italic; color: #1a1a1a;">Key Insight: Overall DQ health stands at """ + f"{executive_summary['health_pct']:.1f}%" + """, with """ + str(executive_summary['failed_rules']) + """ failed rules impacting """ + str(len(priority_tables)) + """ tables. Immediate investigation and remediation are recommended to prevent further data quality degradation.</p>
                 
                 <p style="margin: 16px 0 12px 0; font-weight: bold; font-size: 15px; color: #1a1a1a;">DQ Outages Requiring Attention</p>
                 
@@ -304,7 +272,7 @@ class EmailNotificationService:
                         <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">Failed Rules</th>
                         <th style="padding: 10px; border: 1px solid #999999; text-align: center; font-weight: bold; background-color: #f5f5f5; font-size: 16px;">DQ Health Score (%)</th>
                     </tr>
-                    {priority_table_rows}
+                    """ + priority_table_rows + """
                 </table>
                 
                 <p style="margin: 16px 0 12px 0; font-weight: bold; font-size: 15px; color: #1a1a1a;">Attachments & Resources</p>
@@ -320,6 +288,7 @@ class EmailNotificationService:
             </body>
         </html>
         """
+        )
         
         return html_content
 
