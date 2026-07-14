@@ -20,3 +20,5 @@ requests
 
 gunicorn
 openpyxl
+
+google-cloud-secret-manager
