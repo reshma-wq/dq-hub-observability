@@ -10,7 +10,28 @@ class RuleService:
         self.bq = BigQueryAdapter(PROJECT_ID)
 
     def compile_sql(self, table_name, rule):
+        # Use condition as-is - both Template and Custom SQL send the failure condition
+        condition = rule.sql_condition
 
+        # Check if this is a unique rule (condition contains COUNT)
+        if 'COUNT(*)' in condition:
+            # This is a unique rule - find duplicates
+            # condition will be "COUNT(*) > 1"
+            return f"""
+            SELECT
+                CURRENT_TIMESTAMP() AS execution_ts,
+                '{table_name}' AS table_name,
+                '{rule.column_name}' AS column_name,
+                '{rule.rule_name}' AS rule_name,
+                COUNT(*) AS total_records,
+                SUM(CASE WHEN cnt > 1 THEN 1 ELSE 0 END) AS failed_records
+            FROM (
+                SELECT *, COUNT(*) OVER (PARTITION BY {rule.column_name}) as cnt
+                FROM `{PROJECT_ID}.{TARGET_DATASET}.{table_name}`
+            )
+            """
+        
+        # Standard WHERE condition
         return f"""
         SELECT
             CURRENT_TIMESTAMP() AS execution_ts,
@@ -20,7 +41,7 @@ class RuleService:
             COUNT(*) AS total_records,
             SUM(
                 CASE
-                    WHEN {rule.sql_condition}
+                    WHEN {condition}
                     THEN 1
                     ELSE 0
                 END

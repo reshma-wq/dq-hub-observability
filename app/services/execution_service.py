@@ -164,6 +164,9 @@ class ExecutionService:
 
             print("EXECUTION COMPLETED")
 
+            # Capture the completed timestamp
+            completed_at = datetime.utcnow().isoformat()
+
             # Create execution run record with final values (after all rules executed)
             self.bq.create_execution_run(
                 self.target_dataset,
@@ -174,7 +177,7 @@ class ExecutionService:
                     "completed_rules": completed,
                     "status": "SUCCESS",
                     "started_at": scan_started_at,
-                    "completed_at": datetime.utcnow().isoformat()
+                    "completed_at": completed_at
                 }
             )
 
@@ -183,7 +186,8 @@ class ExecutionService:
                 "status": "started",
                 "total_rules": total_rules,
                 "completed_rules": completed,
-                "failed_rules": failed_rules
+                "failed_rules": failed_rules,
+                "completed_at": completed_at
             }
 
     def get_status(self, run_id):

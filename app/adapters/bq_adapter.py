@@ -852,3 +852,5 @@ class BigQueryAdapter:
                 row["table_name"]
                 for row in results
             }
+
+            

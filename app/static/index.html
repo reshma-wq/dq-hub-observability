@@ -2349,10 +2349,25 @@ function renderPanel() {
 
   const t = currentTable();
   if (!t) return;
+  
+  // Fetch columns if not already loaded
+  if (!t.columns || t.columns.length === 0) {
+    fetch(`/dashboard/table/${state.currentTable}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.columns) {
+          t.columns = data.columns;
+          renderPanel(); // Re-render with columns
+        }
+      })
+      .catch(e => console.error('Failed to fetch columns:', e));
+    return; // Exit early, will re-render when columns arrive
+  }
+  
   const editing = state.addRule.editingRuleId;
   const editingRule = editing ? t.rules.find(r => r.id === editing) : null;
 
-  const cols = t.columns;
+  const cols = t.columns && Array.isArray(t.columns) ? t.columns : [];
   const colOptions = ['<option value="">Select column</option>', ...cols.map(c => `<option value="${c}" ${state.addRule.column === c ? 'selected' : ''}>${c}</option>`)].join('');
   const typeOptions = ['<option value="">Select rule type</option>', ...state.ruleTypes.map(rt => `<option value="${rt.v}" ${state.addRule.type === rt.v ? 'selected' : ''}>${rt.l}</option>`)].join('');
 
@@ -2373,7 +2388,9 @@ function renderPanel() {
     else if (type === 'pattern') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT REGEXP_CONTAINS(${col}, r'${v1}')`;
     else previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
   } else {
-    previewSQL = state.addRule.sqlCondition || `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE <condition>`;
+    // For custom SQL, show condition as-is (same as Template tab)
+    const condition = state.addRule.sqlCondition || '<condition>';
+    previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${condition}`;
   }
 
   const aiTabContent = `
@@ -2452,7 +2469,7 @@ function renderPanel() {
     </div>
     <div class="panel-foot">
       <button class="btn" id="panel-cancel">Cancel</button>
-      <button class="btn btn-primary" id="panel-submit" ${state.addRule.tab === 'ai' || (!state.addRule.column && state.addRule.tab !== 'custom') || (state.addRule.tab === 'custom' && !state.addRule.sqlCondition.trim()) ? 'disabled' : ''}>${editing ? 'Save changes' : 'Add rule'}</button>
+      <button class="btn btn-primary" id="panel-submit" ${state.addRule.tab === 'ai' || !state.addRule.column ? 'disabled' : ''}>${editing ? 'Save changes' : 'Add rule'}</button>
     </div>
   `;
 
@@ -2461,9 +2478,43 @@ function renderPanel() {
   });
   $('#ar-column')?.addEventListener('change', (e) => { state.addRule.column = e.target.value; renderPanel(); });
   $('#ar-type')?.addEventListener('change', (e) => { state.addRule.type = e.target.value; renderPanel(); });
-  $('#ar-v1')?.addEventListener('input', (e) => { state.addRule.params.v1 = e.target.value; renderPanel(); });
-  $('#ar-condition')?.addEventListener('input', (e) => { state.addRule.sqlCondition = e.target.value; renderPanel(); });
-  $('#ar-v2')?.addEventListener('input', (e) => { state.addRule.params.v2 = e.target.value; renderPanel(); });
+  $('#ar-v1')?.addEventListener('input', (e) => { 
+    state.addRule.params.v1 = e.target.value;
+    // Update only the preview without rebuilding panel - fixes cursor jumping
+    const t = currentTable();
+    const col = state.addRule.column || '<column>';
+    const type = state.addRule.type;
+    const v1 = state.addRule.params.v1;
+    const v2 = state.addRule.params.v2;
+    let previewSQL = '';
+    if (type === 'in_values') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT IN (${v1})`;
+    else if (type === 'between') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT BETWEEN ${v1} AND ${v2}`;
+    else if (type === 'pattern') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE NOT REGEXP_CONTAINS(${col}, r'${v1}')`;
+    const sqlPreview = document.querySelector('.sql-preview');
+    if (sqlPreview && previewSQL) sqlPreview.innerHTML = highlightSQL(previewSQL);
+  });
+  $('#ar-condition')?.addEventListener('input', (e) => { 
+    state.addRule.sqlCondition = e.target.value;
+    // Update only the preview without rebuilding panel - fixes cursor jumping in Custom SQL
+    const t = currentTable();
+    const condition = state.addRule.sqlCondition || '<condition>';
+    const previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${condition}`;
+    const sqlPreview = document.querySelector('.sql-preview');
+    if (sqlPreview) sqlPreview.innerHTML = highlightSQL(previewSQL);
+  });
+  $('#ar-v2')?.addEventListener('input', (e) => { 
+    state.addRule.params.v2 = e.target.value;
+    // Update only the preview without rebuilding panel - fixes cursor jumping
+    const t = currentTable();
+    const col = state.addRule.column || '<column>';
+    const type = state.addRule.type;
+    const v1 = state.addRule.params.v1;
+    const v2 = state.addRule.params.v2;
+    let previewSQL = '';
+    if (type === 'between') previewSQL = `SELECT *\nFROM ${t.schema}.${state.currentTable}\nWHERE ${col} NOT BETWEEN ${v1} AND ${v2}`;
+    const sqlPreview = document.querySelector('.sql-preview');
+    if (sqlPreview && previewSQL) sqlPreview.innerHTML = highlightSQL(previewSQL);
+  });
   $('#ar-desc')?.addEventListener('input', (e) => { state.addRule.description = e.target.value; });
   $('#panel-x')?.addEventListener('click', closePanel);
   $('#panel-cancel')?.addEventListener('click', closePanel);
@@ -2479,20 +2530,31 @@ function renderPanel() {
   $('#panel-submit')?.addEventListener('click', async () => {
     if (state.addRule.tab === 'ai') return;
     if (!state.addRule.column) { showToast('Pick a column first', 'error'); return; }
+    if (state.addRule.tab === 'custom' && !state.addRule.sqlCondition.trim()) { showToast('Enter SQL condition first', 'error'); return; }
     const ruleName = state.addRule.description.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
     
     try {
-      // Extract just the WHERE condition from previewSQL
-      let sqlCondition = previewSQL;
-      if (sqlCondition.includes('WHERE ')) {
-        sqlCondition = sqlCondition.substring(sqlCondition.indexOf('WHERE ') + 6).trim();
-      } else if (sqlCondition.includes('HAVING ')) {
-        sqlCondition = sqlCondition.substring(sqlCondition.indexOf('HAVING ') + 7).trim();
-      }
-
-      // For Custom SQL only: invert the condition by wrapping with NOT
+      // Build the SQL condition based on tab and type
+      let sqlCondition;
+      
       if (state.addRule.tab === 'custom') {
-        sqlCondition = `NOT (${sqlCondition})`;
+        sqlCondition = state.addRule.sqlCondition.trim();
+      } else if (state.addRule.tab === 'template') {
+        // For Template, generate condition with actual parameter values
+        const col = state.addRule.column;
+        const type = state.addRule.type;
+        const v1 = state.addRule.params.v1;
+        const v2 = state.addRule.params.v2;
+        
+        if (type === 'not_null') sqlCondition = `${col} IS NULL`;
+        else if (type === 'unique') sqlCondition = `COUNT(*) > 1`;
+        else if (type === 'in_values') sqlCondition = `${col} NOT IN (${v1})`;
+        else if (type === 'between') sqlCondition = `${col} NOT BETWEEN ${v1} AND ${v2}`;
+        else if (type === 'positive') sqlCondition = `${col} <= 0 OR ${col} IS NULL`;
+        else if (type === 'pattern') sqlCondition = `NOT REGEXP_CONTAINS(${col}, r'${v1}')`;
+        else sqlCondition = '<condition>';
+      } else {
+        sqlCondition = '<condition>';
       }
 
       // Prepare rule data for backend
