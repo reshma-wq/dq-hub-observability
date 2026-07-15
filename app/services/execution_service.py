@@ -53,21 +53,11 @@ class ExecutionService:
 
             total_rules = len(rules)
 
-            self.bq.create_execution_run(
-                self.target_dataset,
-                {
-                    "run_id": run_id,
-                    "table_name": table_name,
-                    "total_rules": total_rules,
-                    "completed_rules": 0,
-                    "status": "RUNNING",
-                    "started_at": datetime.utcnow().isoformat(),
-                    "completed_at": None
-                }
-            )
-
             failed_rules = 0
             completed = 0
+            
+            # Capture start time BEFORE loop begins
+            scan_started_at = datetime.utcnow().isoformat()
 
             print("ENTERING LOOP")
 
@@ -173,6 +163,20 @@ class ExecutionService:
                     continue
 
             print("EXECUTION COMPLETED")
+
+            # Create execution run record with final values (after all rules executed)
+            self.bq.create_execution_run(
+                self.target_dataset,
+                {
+                    "run_id": run_id,
+                    "table_name": table_name,
+                    "total_rules": total_rules,
+                    "completed_rules": completed,
+                    "status": "SUCCESS",
+                    "started_at": scan_started_at,
+                    "completed_at": datetime.utcnow().isoformat()
+                }
+            )
 
             return {
                 "run_id": run_id,

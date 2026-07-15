@@ -376,7 +376,18 @@ class BigQueryAdapter:
 
             passing_rules = 0
 
-            latest_scan = None
+            # Get last execution timestamp from dq_execution_runs table
+            try:
+                query = f"""
+                    SELECT CAST(MAX(completed_at) as STRING) as latest_completed_at
+                    FROM `{self.project_id}.{dataset}.dq_execution_runs`
+                    WHERE status = 'SUCCESS' AND completed_at IS NOT NULL
+                """
+                query_job = self.client.query(query)
+                results = list(query_job.result())
+                latest_scan = results[0]["latest_completed_at"] if results and results[0]["latest_completed_at"] else None
+            except Exception as e:
+                latest_scan = None
 
             for table in latest_results:
 
@@ -401,20 +412,6 @@ class BigQueryAdapter:
                     else:
 
                         passing_rules += 1
-
-                table_scan = table.get(
-                    "last_scan"
-                )
-
-                if (
-                    table_scan and
-                    (
-                        latest_scan is None or
-                        table_scan > latest_scan
-                    )
-                ):
-
-                    latest_scan = table_scan
 
                 if not table.get(
                     "columns"

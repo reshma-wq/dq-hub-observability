@@ -555,6 +555,7 @@ const state = {
     tables_monitored: 0,
     open_incidents: 0,
     last_scan: "--"},
+  previousLastScan: "--",
   tables: {},
   ruleTypes: [
     {v:'not_null',l:'Not null'},
@@ -849,51 +850,9 @@ async function loadDashboardSummary() {
         : "var(--text-primary)";
     }
 
-    // Last Scan
-    const scanEl =
-      document.getElementById(
-        "last-scan"
-      );
-
-    if (scanEl) {
-
-        const scanDate =
-          new Date(
-            data.last_scan
-          );
-
-        const now =
-          new Date();
-
-        const diffMins =
-          Math.floor(
-            (now - scanDate) / 60000
-          );
-
-        const scanUnitEl =
-          document.getElementById(
-            "last-scan-unit"
-          );
-
-        if (isNaN(diffMins)) {
-
-          scanEl.innerText = "--";
-
-          if (scanUnitEl) {
-
-            scanUnitEl.innerText = "";
-          }
-
-        } else {
-
-          scanEl.innerText = diffMins;
-
-          if (scanUnitEl) {
-
-            scanUnitEl.innerText = "ago";
-          }
-        }
-    }
+    // Store last_scan in state for dashboard rendering
+    state.dashboardSummary.last_scan = data.last_scan || "--";
+    console.log("[Dashboard Summary] Updated state.dashboardSummary.last_scan:", state.dashboardSummary.last_scan);
 
     // Dynamic Tables Population
 
@@ -1039,34 +998,59 @@ function renderOverviewCards() {
     incidentEl.innerText =
       dashboard.open_incidents;
   }
-
-  const lastScanEl =
-    document.getElementById(
-      "last-scan"
-    );
-
-  if (lastScanEl) {
-
-    const scanDate =
-      new Date(
-        dashboard.last_scan
-      );
-
-    const now =
-      new Date();
-
-    const diffMins =
-      Math.floor(
-        (now - scanDate) / 60000
-      );
-
-    lastScanEl.innerText =
-      isNaN(diffMins)
-        ? "--"
-        : `${diffMins}m`;
-  }
 }
 
+// Format last scan timestamp for display
+function formatLastScanTimestamp(lastScanValue) {
+  if (!lastScanValue || lastScanValue === "--") {
+    return { timeStr: "--", relativeTime: "" };
+  }
+
+  // Clean timestamp - remove timezone info
+  let scanTimestamp = lastScanValue;
+  if (typeof scanTimestamp === 'string') {
+    scanTimestamp = scanTimestamp.replace(' UTC', '').replace(/\+\d{2}:?\d{0,2}$/, '');
+  }
+
+  const scanDate = new Date(scanTimestamp);
+  
+  // Check if date parsing was successful
+  if (isNaN(scanDate.getTime())) {
+    return { timeStr: "--", relativeTime: "" };
+  }
+
+  // Convert to 24-hour format (HH:MM:SS)
+  const hour24 = String(scanDate.getHours()).padStart(2, '0');
+  const minutes = String(scanDate.getMinutes()).padStart(2, '0');
+  const seconds = String(scanDate.getSeconds()).padStart(2, '0');
+  const day = String(scanDate.getDate()).padStart(2, '0');
+  const month = String(scanDate.getMonth() + 1).padStart(2, '0');
+  const year = scanDate.getFullYear();
+  
+  const timeStr = `${day}/${month}/${year}, ${hour24}:${minutes}:${seconds}`;
+
+  // Calculate the time difference
+  const now = new Date();
+  const diffMs = now - scanDate;
+  
+  let relativeTime = "";
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffDays > 0) {
+    relativeTime = diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
+  } else if (diffHours > 0) {
+    relativeTime = diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
+  } else if (diffMins > 0) {
+    relativeTime = diffMins === 1 ? "1 min ago" : `${diffMins} mins ago`;
+  } else {
+    relativeTime = "just now";
+  }
+
+  return { timeStr, relativeTime };
+}
 
 async function registerSelectedRules(
   tableName
@@ -1399,22 +1383,14 @@ function renderOverview() {
         id="last-scan"
         class="num"
       >
-        --
-      </span
-
-      <span
-        id="last-scan-unit"
-        class="unit"
-      >
+        ${formatLastScanTimestamp(state.dashboardSummary.last_scan).timeStr}
       </span>
 
     </div>
 
-    <div class="stat-foot">
+    <div class="stat-foot" id="last-scan-foot">
 
-      <span class="live-dot"></span>
-
-      auto · every 15m
+      ${formatLastScanTimestamp(state.dashboardSummary.last_scan).relativeTime}
 
     </div>
 
@@ -2734,7 +2710,9 @@ async function runScan(tableName) {
     state.scanRunning =
       true;
 
-    render();
+    // Preserve current timestamp BEFORE doing anything
+    state.previousLastScan = state.dashboardSummary.last_scan;
+    console.log("[runScan] Preserved timestamp before scan:", state.previousLastScan);
 
     const endpoint =
       tableName
@@ -2774,9 +2752,11 @@ async function runScan(tableName) {
       "success"
     );
 
-    // SINGLE refresh only
-
-    await refreshDashboard();
+    // Auto-refresh dashboard after a brief delay to let data be written to DB
+    setTimeout(async () => {
+      console.log("[runScan] Auto-refreshing dashboard after scan completion");
+      await refreshDashboard();
+    }, 2000); // Wait 2 seconds for data to be committed to DB
 
   } catch (error) {
 

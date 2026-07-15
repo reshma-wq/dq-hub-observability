@@ -27,7 +27,6 @@ class EmailNotificationService:
         self.sender_email = EMAIL_SENDER
         self.sender_password = EMAIL_PASSWORD
         self.recipient_emails = [email.strip() for email in EMAIL_RECIPIENT.split(',') if email.strip()]
-        self.dashboard_url = os.getenv("DASHBOARD_URL", "https://dq-hub.company.com")
         self.bq_client = bigquery.Client(project=PROJECT_ID)
         self.dataset = TARGET_DATASET
         
@@ -35,7 +34,6 @@ class EmailNotificationService:
         print(f"[EmailService Init] sender_email: {'✓ Loaded: ' + self.sender_email if self.sender_email else '✗ NOT LOADED'}")
         print(f"[EmailService Init] recipient_emails: {'✓ Loaded: ' + str(self.recipient_emails) if self.recipient_emails else '✗ NOT LOADED'}")
         print(f"[EmailService Init] sender_password: {'✓ Loaded (length: ' + str(len(self.sender_password)) + ')' if self.sender_password else '✗ NOT LOADED'}")
-        print(f"[EmailService Init] dashboard_url: {self.dashboard_url if self.dashboard_url else 'NOT SET'}")
         
         if not self.sender_email or not self.sender_password or not self.recipient_emails:
             print("[EmailService CRITICAL] Email credentials missing! Check Secret Manager:")
