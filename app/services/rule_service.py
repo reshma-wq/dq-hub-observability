@@ -143,3 +143,48 @@ class RuleService:
             "status": "success",
             "rules_registered": len(rules)
         }
+
+    def preview_data(self, table_name, sql_condition):
+        """Preview data for a SQL condition - return failing and passing records"""
+        # Get top 10 failing records
+        failing_query = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{TARGET_DATASET}.{table_name}`
+        WHERE {sql_condition}
+        LIMIT 10
+        """
+        failing_results = list(self.bq.client.query(failing_query).result())
+        
+        # Get top 10 passing records
+        passing_query = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{TARGET_DATASET}.{table_name}`
+        WHERE NOT ({sql_condition})
+        LIMIT 10
+        """
+        passing_results = list(self.bq.client.query(passing_query).result())
+        
+        # Count totals
+        count_query = f"""
+        SELECT 
+            COUNT(*) as total,
+            SUM(CASE WHEN {sql_condition} THEN 1 ELSE 0 END) as failing
+        FROM `{PROJECT_ID}.{TARGET_DATASET}.{table_name}`
+        """
+        count_results = list(self.bq.client.query(count_query).result())
+        total_rows = count_results[0]['total'] if count_results else 0
+        total_failing = count_results[0]['failing'] if count_results else 0
+        total_passing = total_rows - total_failing
+        
+        # Extract column names
+        columns = list(failing_results[0].keys()) if failing_results else (list(passing_results[0].keys()) if passing_results else [])
+        
+        return {
+            "status": "success",
+            "total_scanned": total_rows,
+            "total_passing": total_passing,
+            "total_failing": total_failing,
+            "failing_rows": [dict(row) for row in failing_results],
+            "passing_rows": [dict(row) for row in passing_results],
+            "columns": columns
+        }

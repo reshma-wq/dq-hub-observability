@@ -502,6 +502,19 @@ input,select,textarea{font-family:inherit;font-size:inherit}
   background:var(--bg-elevated-2);
   border-color:var(--border-strong);
 }
+
+/* Preview Modal */
+.preview-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.preview-modal-backdrop.show{display:flex}
+.preview-modal{background:var(--bg-base);border:0.5px solid var(--border);display:flex;flex-direction:row;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
+.preview-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:0.5px solid var(--border);flex-shrink:0}
+.preview-modal-title{font-size:16px;font-weight:500}
+.preview-modal-close{background:transparent;border:0.5px solid var(--border);width:30px;height:30px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);cursor:pointer;transition:all .15s}
+.preview-modal-close:hover{color:var(--text-primary);background:var(--bg-elevated-2)}
+.preview-modal-body{flex:1;overflow:auto;padding:16px 20px}
+.preview-modal-table{width:100%;border-collapse:collapse;font-size:11px;font-family:'IBM Plex Mono',monospace}
+.preview-modal-table th{padding:10px;border:0.5px solid var(--border);text-align:left;color:var(--text-secondary);font-weight:500;background:var(--bg-elevated-2);position:sticky;top:0;z-index:1}
+.preview-modal-table td{padding:10px;border:0.5px solid var(--border);color:var(--text-secondary);word-break:break-word;max-width:200px}
 </style>
 </head>
 <body>
@@ -520,6 +533,97 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 
 <aside id="add-rule-panel" class="panel" aria-label="Add rule panel"></aside>
 <div id="panel-backdrop" class="panel-backdrop"></div>
+
+<div id="preview-modal-backdrop" class="preview-modal-backdrop">
+  <div class="preview-modal" style="width:100vw;height:100vh;max-width:100vw;max-height:100vh;display:flex;flex-direction:row;border-radius:0">
+    <!-- Main Content Area (Left) -->
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;border-right:0.5px solid var(--border)">
+      <div class="preview-modal-header" style="border-bottom:0.5px solid var(--border);padding:16px 20px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+        <div>
+          <h2 class="preview-modal-title">Preview data</h2>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px" id="preview-modal-subtitle"></div>
+        </div>
+        <button class="preview-modal-close" id="preview-modal-close"><i class="ti ti-x"></i></button>
+      </div>
+      
+      <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px">
+        <!-- KPI Stats Row -->
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-shrink:0">
+          <div style="flex:1;background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px">
+            <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:6px;font-weight:500">Rows scanned</div>
+            <div style="font-size:24px;font-weight:500;color:var(--text-primary)" id="preview-stat-scanned">0</div>
+          </div>
+          <div style="flex:1;background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px">
+            <div style="font-size:11px;color:var(--success);text-transform:uppercase;margin-bottom:6px;font-weight:500">Passing</div>
+            <div style="font-size:24px;font-weight:500;color:var(--success)" id="preview-stat-passing">0</div>
+          </div>
+          <div style="flex:1;background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px">
+            <div style="font-size:11px;color:var(--danger);text-transform:uppercase;margin-bottom:6px;font-weight:500">Failing</div>
+            <div style="font-size:24px;font-weight:500;color:var(--danger)" id="preview-stat-failing">0</div>
+          </div>
+          <div style="flex:1;background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px">
+            <div style="font-size:11px;color:var(--info);text-transform:uppercase;margin-bottom:6px;font-weight:500">Health</div>
+            <div style="font-size:24px;font-weight:500;color:var(--info)" id="preview-stat-health">0%</div>
+          </div>
+        </div>
+        
+        <!-- Data Preview Section -->
+        <div style="margin-bottom:12px;flex-shrink:0">
+          <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:8px">Data preview · 10 records</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:11px;color:var(--text-tertiary)">Filter:</span>
+            <button style="background:transparent;border:0.5px solid #FF6B6B;color:#FF6B6B;padding:6px 12px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;transition:all .15s" class="preview-filter-btn" data-filter="failing">Failing Records</button>
+            <button style="background:transparent;border:0.5px solid #00C896;color:#00C896;padding:6px 12px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;transition:all .15s" class="preview-filter-btn" data-filter="passing">Passing Records</button>
+          </div>
+        </div>
+        
+        <!-- Preview table - extends to fill space up to buttons -->
+        <div style="flex:1;border:0.5px solid var(--border);border-radius:var(--radius-sm);display:flex;flex-direction:column;background:var(--bg-elevated);overflow:hidden">
+          <div id="preview-modal-body" style="flex:1;overflow-y:auto;overflow-x:auto"></div>
+          <div style="padding:12px 14px;background:var(--bg-elevated-2);border-top:0.5px solid var(--border);flex-shrink:0;font-size:12px;color:var(--text-secondary);text-align:center" id="preview-modal-footer"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Right Sidebar -->
+    <div style="flex:0 0 320px;background:var(--bg-elevated);border-left:0.5px solid var(--border);display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:0.5px solid var(--border);flex-shrink:0">
+        <div style="font-size:14px;font-weight:500;color:var(--text-primary)">Rule Details</div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column">
+        <!-- Column Info -->
+        <div style="margin-bottom:20px;flex-shrink:0">
+          <div style="font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Column</div>
+          <div style="padding:10px 12px;background:var(--bg-base);border:0.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;word-break:break-word" id="preview-detail-column"></div>
+        </div>
+        
+        <!-- SQL Condition -->
+        <div style="margin-bottom:16px;flex-shrink:0">
+          <div style="font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">SQL Condition</div>
+          <div style="padding:10px 12px;background:var(--bg-base);border:0.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-family:'IBM Plex Mono',monospace;font-size:10px;max-height:80px;overflow-y:auto;word-break:break-word;line-height:1.4;white-space:normal" id="preview-detail-condition"></div>
+        </div>
+        
+        <!-- SQL Preview -->
+        <div style="margin-bottom:16px;flex:0 0 auto;display:flex;flex-direction:column;height:120px">
+          <div style="font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">SQL Preview</div>
+          <div id="preview-detail-sql" class="sql-preview" style="font-size:10px;flex:1;overflow-y:auto;padding:8px;background:var(--bg-base);border:0.5px solid var(--border);border-radius:var(--radius-sm);line-height:1.4"></div>
+        </div>
+        
+        <!-- Description -->
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Description</div>
+          <textarea class="textarea" id="preview-description" placeholder="Describe what this rule checks..." style="font-size:12px;flex:1;resize:none;padding:10px 12px;border:0.5px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-base);color:var(--text-primary);font-family:inherit;transition:all .15s;outline:none"></textarea>
+        </div>
+        
+        <!-- Buttons side by side -->
+        <div style="display:flex;gap:12px;flex-shrink:0">
+          <button class="btn" id="preview-modal-submit" style="flex:1;background:var(--accent);border:0.5px solid var(--accent);color:#fff;font-weight:600;padding:10px 14px;text-align:center;cursor:pointer;border-radius:var(--radius-md);font-size:13px;display:flex;align-items:center;justify-content:center;line-height:1">Add rule</button>
+          <button class="btn" id="preview-modal-back" style="flex:1;background:transparent;border:0.5px solid var(--border-strong);color:var(--text-secondary);font-weight:600;padding:10px 14px;text-align:center;cursor:pointer;border-radius:var(--radius-md);font-size:13px;display:flex;align-items:center;justify-content:center;line-height:1;transition:all .15s">Back to edit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
@@ -2473,6 +2577,7 @@ function renderPanel() {
     </div>
     <div class="panel-foot">
       <button class="btn" id="panel-cancel">Cancel</button>
+      ${state.addRule.tab === 'custom' ? `<button class="btn" id="panel-preview"><i class="ti ti-zoom-scan"></i>Preview</button>` : ''}
       <button class="btn btn-primary" id="panel-submit" ${state.addRule.tab === 'ai' || !state.addRule.column ? 'disabled' : ''}>${editing ? 'Save changes' : 'Add rule'}</button>
     </div>
   `;
@@ -2522,6 +2627,239 @@ function renderPanel() {
   $('#ar-desc')?.addEventListener('input', (e) => { state.addRule.description = e.target.value; });
   $('#panel-x')?.addEventListener('click', closePanel);
   $('#panel-cancel')?.addEventListener('click', closePanel);
+  
+  // Preview button listener - only for Custom SQL tab
+  $('#panel-preview')?.addEventListener('click', async () => {
+    if (!state.addRule.sqlCondition.trim()) {
+      showToast('Enter SQL condition first', 'error');
+      return;
+    }
+    
+    // Store the condition BEFORE closing the panel
+    const storedCondition = state.addRule.sqlCondition.trim();
+    
+    // Close the panel but keep data in state
+    state.panel = null;
+    $('#panel-backdrop').classList.remove('open');
+    $('#add-rule-panel').classList.remove('open');
+    
+    const previewModalBackdrop = document.getElementById('preview-modal-backdrop');
+    const previewModalBody = document.getElementById('preview-modal-body');
+    const previewDetailColumn = document.getElementById('preview-detail-column');
+    const previewDetailCondition = document.getElementById('preview-detail-condition');
+    const previewDescription = document.getElementById('preview-description');
+    const previewDetailSql = document.getElementById('preview-detail-sql');
+    
+    if (!previewModalBackdrop || !previewModalBody) return;
+    
+    // Show modal with loading state
+    previewModalBackdrop.classList.add('show');
+    previewModalBody.innerHTML = '<div style="padding:40px;text-align:center"><span class="spinner" style="display:inline-block;margin-right:8px"></span>Loading preview...</div>';
+    
+    // Populate right sidebar details
+    if (previewDetailColumn) previewDetailColumn.innerText = state.addRule.column || 'N/A';
+    if (previewDetailCondition) previewDetailCondition.innerText = storedCondition;
+    if (previewDescription) previewDescription.value = state.addRule.description;
+    
+    try {
+      const response = await fetch('/rules/preview/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          table_name: state.currentTable,
+          sql_condition: storedCondition
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.status === 'error') {
+        previewModalBody.innerHTML = '<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="margin-right:6px"></i>' + (data.error || 'Error') + '</div>';
+        return;
+      }
+      
+      // Update KPI stats
+      const statScanned = document.getElementById('preview-stat-scanned');
+      const statPassing = document.getElementById('preview-stat-passing');
+      const statFailing = document.getElementById('preview-stat-failing');
+      const statHealth = document.getElementById('preview-stat-health');
+      const modalSubtitle = document.getElementById('preview-modal-subtitle');
+      
+      if (statScanned) statScanned.innerText = data.total_scanned || 0;
+      if (statPassing) statPassing.innerText = data.total_passing || 0;
+      if (statFailing) statFailing.innerText = data.total_failing || 0;
+      
+      // Calculate health percentage
+      const healthPercentage = data.total_scanned > 0 ? Math.round((data.total_passing / data.total_scanned) * 100) : 0;
+      if (statHealth) statHealth.innerText = healthPercentage + '%';
+      
+      if (modalSubtitle) modalSubtitle.innerText = state.addRule.column + ' · ' + state.addRule.sqlCondition;
+      
+      // Store passing and failing rows separately
+      const failingRows = data.failing_rows || [];
+      const passingRows = data.passing_rows || [];
+      const columns = data.columns || [];
+      
+      // Function to render table
+      const renderTable = (rowsToShow) => {
+        if (rowsToShow.length === 0) {
+          previewModalBody.innerHTML = '<div style="padding:40px;text-align:center">No records to display</div>';
+          return;
+        }
+        
+        let previewHTML = '<table class="preview-modal-table" style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="position:sticky;top:0;z-index:2;background:var(--bg-elevated-2);border-bottom:0.5px solid var(--border-strong)">';
+        
+        columns.forEach(col => {
+          previewHTML += '<th style="padding:10px 8px;border:0.5px solid var(--border);background:var(--bg-elevated-2);color:var(--text-primary);font-weight:600;text-align:left;position:sticky;top:0;z-index:2;font-size:11px">' + col + '</th>';
+        });
+        previewHTML += '</tr></thead><tbody>';
+        
+        rowsToShow.forEach((row) => {
+          previewHTML += '<tr>';
+          columns.forEach(col => {
+            let value = row[col];
+            if (value === null || value === undefined) {
+              value = '<span style="color:var(--text-tertiary);font-style:italic">NULL</span>';
+            } else {
+              value = String(value);
+            }
+            previewHTML += '<td style="padding:8px;border:0.5px solid var(--border);color:var(--text-secondary)">' + value + '</td>';
+          });
+          previewHTML += '</tr>';
+        });
+        previewHTML += '</tbody></table>';
+        
+        previewModalBody.innerHTML = previewHTML;
+      };
+      
+      // Show SQL preview in the right sidebar
+      const t = currentTable();
+      const sqlPreview = 'SELECT *\nFROM ' + (t ? t.schema : '') + '.' + state.currentTable + '\nWHERE ' + state.addRule.sqlCondition;
+      if (previewDetailSql) {
+        previewDetailSql.innerText = sqlPreview;
+      }
+      
+      // Setup filter buttons
+      document.querySelectorAll('.preview-filter-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Update all button styles first - reset to default
+          document.querySelectorAll('.preview-filter-btn').forEach(b => {
+            b.style.background = 'transparent';
+            b.style.color = b.dataset.filter === 'failing' ? '#FF6B6B' : 'var(--success)';
+            b.style.borderColor = b.dataset.filter === 'failing' ? '#FF6B6B' : 'var(--success)';
+            b.style.fontWeight = '400';
+          });
+          
+          // Highlight clicked button with deep colors
+          if (btn.dataset.filter === 'failing') {
+            btn.style.background = '#FF6B6B';
+            btn.style.color = '#ffffff';
+            btn.style.borderColor = '#FF6B6B';
+            btn.style.fontWeight = '600';
+            renderTable(failingRows.slice(0, 10));
+          } else if (btn.dataset.filter === 'passing') {
+            btn.style.background = '#006B4A';
+            btn.style.color = '#ffffff';
+            btn.style.borderColor = '#004D36';
+            btn.style.fontWeight = '600';
+            renderTable(passingRows.slice(0, 10));
+          }
+        });
+      });
+      
+      // Initial render - show top 10 failing records with coral red highlight
+      renderTable(failingRows.slice(0, 10));
+      
+      // Set initial button style for failing - coral red background
+      const failingBtn = document.querySelector('[data-filter="failing"]');
+      if (failingBtn) {
+        failingBtn.style.background = '#FF6B6B';
+        failingBtn.style.color = '#ffffff';
+        failingBtn.style.borderColor = '#FF6B6B';
+        failingBtn.style.fontWeight = '600';
+      }
+      
+      // Add focus/blur styling for description textarea
+      const descriptionTextarea = document.getElementById('preview-description');
+      if (descriptionTextarea) {
+        descriptionTextarea.addEventListener('focus', () => {
+          descriptionTextarea.style.borderColor = '#4A8AE8';
+          descriptionTextarea.style.boxShadow = '0 0 0 2px rgba(74, 138, 232, 0.1)';
+        });
+        descriptionTextarea.addEventListener('blur', () => {
+          descriptionTextarea.style.borderColor = 'var(--border)';
+          descriptionTextarea.style.boxShadow = 'none';
+        });
+      }
+      
+      // Setup modal button listeners
+      const closeBtn = document.getElementById('preview-modal-close');
+      const backBtn = document.getElementById('preview-modal-back');
+      const submitBtn = document.getElementById('preview-modal-submit');
+      const backdrop = document.getElementById('preview-modal-backdrop');
+      
+      // Close button (X)
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const desc = document.getElementById('preview-description');
+          if (desc) state.addRule.description = desc.value;
+          backdrop.classList.remove('show');
+          state.panel = 'add-rule';
+          renderPanel();
+        });
+      }
+      
+      // Back to edit button
+      if (backBtn) {
+        backBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const desc = document.getElementById('preview-description');
+          if (desc) state.addRule.description = desc.value;
+          backdrop.classList.remove('show');
+          state.panel = 'add-rule';
+          renderPanel();
+        });
+      }
+      
+      // Add rule button
+      if (submitBtn) {
+        submitBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const desc = document.getElementById('preview-description');
+          if (desc) state.addRule.description = desc.value;
+          backdrop.classList.remove('show');
+          document.getElementById('panel-submit')?.click();
+        });
+      }
+      
+      // Backdrop click
+      if (backdrop) {
+        backdrop.addEventListener('click', (e) => {
+          if (e.target.id === 'preview-modal-backdrop') {
+            const desc = document.getElementById('preview-description');
+            if (desc) state.addRule.description = desc.value;
+            backdrop.classList.remove('show');
+            state.panel = 'add-rule';
+            renderPanel();
+          }
+        });
+      }
+      
+      showToast('Preview loaded: ' + failingRows.length + ' failing, ' + passingRows.length + ' passing', 'success');
+      
+    } catch (error) {
+      console.error('Preview error:', error);
+      previewModalBody.innerHTML = '<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="margin-right:6px"></i>Failed to load preview</div>';
+      showToast('Failed to load preview', 'error');
+    }
+  });
   $('#ai-generate')?.addEventListener('click',async () => {
 
     closePanel();
