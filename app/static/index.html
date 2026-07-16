@@ -2652,6 +2652,81 @@ function renderPanel() {
     
     if (!previewModalBackdrop || !previewModalBody) return;
     
+    // Setup modal button listeners BEFORE try-catch so they always work
+    const closeBtn = document.getElementById('preview-modal-close');
+    const backBtn = document.getElementById('preview-modal-back');
+    const submitBtn = document.getElementById('preview-modal-submit');
+    const backdrop = document.getElementById('preview-modal-backdrop');
+    
+    // Close button (X)
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const desc = document.getElementById('preview-description');
+        if (desc) state.addRule.description = desc.value;
+        backdrop.classList.remove('show');
+        $('#panel-backdrop').classList.add('open');
+        $('#add-rule-panel').classList.add('open');
+      });
+    }
+    
+    // Back to edit button
+    if (backBtn) {
+      backBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const desc = document.getElementById('preview-description');
+        if (desc) state.addRule.description = desc.value;
+        backdrop.classList.remove('show');
+        $('#panel-backdrop').classList.add('open');
+        $('#add-rule-panel').classList.add('open');
+      });
+    }
+    
+    // Add rule button
+    if (submitBtn) {
+      submitBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Disable button to prevent duplicate submissions
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.5';
+        submitBtn.style.cursor = 'not-allowed';
+        
+        try {
+          const desc = document.getElementById('preview-description');
+          if (desc) state.addRule.description = desc.value;
+          
+          // Close modal and panel
+          backdrop.classList.remove('show');
+          state.panel = null;
+          $('#panel-backdrop').classList.remove('open');
+          $('#add-rule-panel').classList.remove('open');
+          
+          // Trigger the actual rule submission
+          await document.getElementById('panel-submit')?.click();
+          
+          // Reset state after submission
+          state.addRule = {
+            tab: 'template',
+            column: '',
+            type: '',
+            params: { v1: '', v2: '' },
+            sqlCondition: '',
+            description: '',
+            editingRuleId: null
+          };
+        } finally {
+          // Re-enable button
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '1';
+          submitBtn.style.cursor = 'pointer';
+        }
+      });
+    }
+    
     // Show modal with loading state
     previewModalBackdrop.classList.add('show');
     previewModalBody.innerHTML = '<div style="padding:40px;text-align:center"><span class="spinner" style="display:inline-block;margin-right:8px"></span>Loading preview...</div>';
@@ -2745,11 +2820,11 @@ function renderPanel() {
           e.preventDefault();
           e.stopPropagation();
           
-          // Update all button styles first - reset to default
+          // Update all button styles first - reset to default (transparent)
           document.querySelectorAll('.preview-filter-btn').forEach(b => {
             b.style.background = 'transparent';
-            b.style.color = b.dataset.filter === 'failing' ? '#FF6B6B' : 'var(--success)';
-            b.style.borderColor = b.dataset.filter === 'failing' ? '#FF6B6B' : 'var(--success)';
+            b.style.color = b.dataset.filter === 'failing' ? '#FF6B6B' : '#00C896';
+            b.style.borderColor = b.dataset.filter === 'failing' ? '#FF6B6B' : '#00C896';
             b.style.fontWeight = '400';
           });
           
@@ -2773,7 +2848,15 @@ function renderPanel() {
       // Initial render - show top 10 failing records with coral red highlight
       renderTable(failingRows.slice(0, 10));
       
-      // Set initial button style for failing - coral red background
+      // Reset all buttons to transparent first
+      document.querySelectorAll('.preview-filter-btn').forEach(b => {
+        b.style.background = 'transparent';
+        b.style.color = b.dataset.filter === 'failing' ? '#FF6B6B' : '#00C896';
+        b.style.borderColor = b.dataset.filter === 'failing' ? '#FF6B6B' : '#00C896';
+        b.style.fontWeight = '400';
+      });
+      
+      // Set initial button style for failing - coral red background ONLY
       const failingBtn = document.querySelector('[data-filter="failing"]');
       if (failingBtn) {
         failingBtn.style.background = '#FF6B6B';
@@ -2809,8 +2892,8 @@ function renderPanel() {
           const desc = document.getElementById('preview-description');
           if (desc) state.addRule.description = desc.value;
           backdrop.classList.remove('show');
-          state.panel = 'add-rule';
-          renderPanel();
+          $('#panel-backdrop').classList.add('open');
+          $('#add-rule-panel').classList.add('open');
         });
       }
       
@@ -2822,8 +2905,8 @@ function renderPanel() {
           const desc = document.getElementById('preview-description');
           if (desc) state.addRule.description = desc.value;
           backdrop.classList.remove('show');
-          state.panel = 'add-rule';
-          renderPanel();
+          $('#panel-backdrop').classList.add('open');
+          $('#add-rule-panel').classList.add('open');
         });
       }
       
@@ -2832,10 +2915,49 @@ function renderPanel() {
         submitBtn.addEventListener('click', async (e) => {
           e.preventDefault();
           e.stopPropagation();
-          const desc = document.getElementById('preview-description');
-          if (desc) state.addRule.description = desc.value;
-          backdrop.classList.remove('show');
-          document.getElementById('panel-submit')?.click();
+          
+          // Prevent duplicate submissions
+          if (submitBtn._submitting) return;
+          submitBtn._submitting = true;
+          
+          try {
+            const desc = document.getElementById('preview-description');
+            if (desc) state.addRule.description = desc.value;
+            
+            // Set flag FIRST before triggering submission
+            state.fromPreview = true;
+            
+            // Close modal and panel
+            backdrop.classList.remove('show');
+            state.panel = null;
+            $('#panel-backdrop').classList.remove('open');
+            $('#add-rule-panel').classList.remove('open');
+            
+            // Trigger the actual rule submission and wait for state.submitting to complete
+            const panelSubmit = document.getElementById('panel-submit');
+            if (panelSubmit) {
+              panelSubmit.click();
+              
+              // Wait for the submission to actually complete by checking the flag
+              while (state.submitting) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+            }
+            
+            // Clear state after submission is confirmed complete
+            state.addRule = {
+              tab: 'template',
+              column: '',
+              type: '',
+              params: { v1: '', v2: '' },
+              sqlCondition: '',
+              description: '',
+              editingRuleId: null
+            };
+            state.fromPreview = false;
+          } finally {
+            submitBtn._submitting = false;
+          }
         });
       }
       
@@ -2846,18 +2968,17 @@ function renderPanel() {
             const desc = document.getElementById('preview-description');
             if (desc) state.addRule.description = desc.value;
             backdrop.classList.remove('show');
-            state.panel = 'add-rule';
-            renderPanel();
+            // Don't reopen panel - just close modal
+            state.panel = null;
           }
         });
       }
       
-      showToast('Preview loaded: ' + failingRows.length + ' failing, ' + passingRows.length + ' passing', 'success');
+      // Preview loaded - no toast to avoid confusion with rule submission toasts
       
     } catch (error) {
       console.error('Preview error:', error);
       previewModalBody.innerHTML = '<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="margin-right:6px"></i>Failed to load preview</div>';
-      showToast('Failed to load preview', 'error');
     }
   });
   $('#ai-generate')?.addEventListener('click',async () => {
@@ -2870,19 +2991,35 @@ function renderPanel() {
   }
 );
   $('#panel-submit')?.addEventListener('click', async () => {
-    if (state.addRule.tab === 'ai') return;
-    if (!state.addRule.column) { showToast('Pick a column first', 'error'); return; }
-    if (state.addRule.tab === 'custom' && !state.addRule.sqlCondition.trim()) { showToast('Enter SQL condition first', 'error'); return; }
-    const ruleName = state.addRule.description.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
+    // Prevent double submissions
+    if (state.submitting) return;
+    state.submitting = true;
     
     try {
+      if (state.addRule.tab === 'ai') {
+        state.submitting = false;
+        return;
+      }
+      
+      // Skip validation if coming from preview modal
+      if (!state.fromPreview) {
+        if (!state.addRule.column) { showToast('Pick a column first', 'error'); state.submitting = false; return; }
+        if (state.addRule.tab === 'custom' && !state.addRule.sqlCondition.trim()) { showToast('Enter SQL condition first', 'error'); state.submitting = false; return; }
+      }
+      
+      // If coming from preview, mark as processed
+      if (state.fromPreview) {
+        state.fromPreview = false;
+      }
+      
+      const ruleName = state.addRule.description.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) || `${state.addRule.column}_${state.addRule.type || 'custom'}`;
+      
       // Build the SQL condition based on tab and type
       let sqlCondition;
       
       if (state.addRule.tab === 'custom') {
         sqlCondition = state.addRule.sqlCondition.trim();
       } else if (state.addRule.tab === 'template') {
-        // For Template, generate condition with actual parameter values
         const col = state.addRule.column;
         const type = state.addRule.type;
         const v1 = state.addRule.params.v1;
@@ -2959,6 +3096,9 @@ function renderPanel() {
     } catch (error) {
       console.error('Error registering rule:', error);
       showToast('Failed to register rule', 'error');
+    } finally {
+      // Always allow next submission
+      state.submitting = false;
     }
   });
 }
