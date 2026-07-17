@@ -12,4 +12,8 @@ class Rule(BaseModel):
 class RuleRegistrationRequest(BaseModel):
     table_name: str
     rules: List[Rule]
+
+class PreviewRequest(BaseModel):
+    table_name: str
+    sql_condition: str
     
