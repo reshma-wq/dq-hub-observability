@@ -28,6 +28,17 @@ class BigQueryAdapter:
             
         return "\n".join(schema_summary)
 
+    def run_query(self, query: str):
+        """
+        Execute a BigQuery query and return results
+        """
+        try:
+            results = self.client.query(query).result()
+            return list(results)
+        except Exception as e:
+            print(f"[ERROR run_query] {str(e)}")
+            raise
+
     # def get_registered_rules(self,dataset_name: str,table_name: str):
     #     query = f"""
     #         SELECT *
@@ -102,6 +113,19 @@ class BigQueryAdapter:
         print(rule)
         table_id = f"{self.project_id}.{dataset}.dq_rules_registry"
         rows = [rule]
+        errors = self.client.insert_rows_json(
+            table_id,
+            rows
+        )
+        if errors:
+            raise Exception(errors)
+    
+    def register_anomaly(self, dataset, anomaly):
+        """Register an anomaly in dq_anomaly_registry table"""
+        print("INSERTING ANOMALY")
+        print(anomaly)
+        table_id = f"{self.project_id}.{dataset}.dq_anomaly_registry"
+        rows = [anomaly]
         errors = self.client.insert_rows_json(
             table_id,
             rows
@@ -196,6 +220,103 @@ class BigQueryAdapter:
             raise Exception(errors)
 
         print("INSERT SUCCESS")
+
+    def get_registered_anomalies(self, dataset, table_name):
+        """Fetch all active registered anomalies for a table"""
+        query = f"""
+        SELECT 
+          table_name,
+          column_name,
+          anomaly_name,
+          anomaly_category,
+          compiled_sql,
+          active_flag
+        FROM `{self.project_id}.{dataset}.dq_anomaly_registry`
+        WHERE table_name = '{table_name}'
+        AND active_flag = 'Y'
+        """
+        
+        results = self.client.query(query).result()
+        anomalies = []
+        
+        for row in results:
+            anomalies.append({
+                "table_name": row.table_name,
+                "column_name": row.column_name,
+                "anomaly_name": row.anomaly_name,
+                "anomaly_category": row.anomaly_category,
+                "compiled_sql": row.compiled_sql,
+                "active_flag": row.active_flag
+            })
+        
+        return anomalies
+
+    def execute_anomaly_sql(self, compiled_sql):
+        """Execute anomaly compiled_sql and return results"""
+        try:
+            from decimal import Decimal
+            
+            results = self.client.query(compiled_sql).result()
+            rows = []
+            
+            def convert_to_json_serializable(value):
+                """Convert BigQuery types to JSON-serializable Python types"""
+                if value is None:
+                    return None
+                if isinstance(value, Decimal):
+                    # Convert Decimal to float (from COUNT, SUM, etc.)
+                    return float(value)
+                if isinstance(value, (int, str, bool)):
+                    return value
+                if isinstance(value, float):
+                    return value
+                if hasattr(value, 'isoformat'):
+                    # datetime, date, timestamp types
+                    return value.isoformat()
+                # Fallback: convert to string
+                return str(value)
+            
+            for row in results:
+                rows.append({
+                    "execution_ts": convert_to_json_serializable(row.execution_ts),
+                    "table_name": convert_to_json_serializable(row.table_name),
+                    "column_name": convert_to_json_serializable(row.column_name),
+                    "anomaly_name": convert_to_json_serializable(row.anomaly_name),
+                    "previous_records_count": convert_to_json_serializable(getattr(row, "previous_records_count", None)),
+                    "current_records_count": convert_to_json_serializable(getattr(row, "current_records_count", None)),
+                    "previous_value": convert_to_json_serializable(row.previous_value),
+                    "current_value": convert_to_json_serializable(row.current_value),
+                    "absolute_diff": convert_to_json_serializable(row.absolute_diff),
+                    "change_pct": convert_to_json_serializable(row.change_pct)
+                })
+            
+            return rows
+        except Exception as e:
+            print(f"Error executing anomaly SQL: {str(e)}")
+            raise
+
+    def insert_anomaly_watchtower_result(self, dataset, result_record):
+        """Insert anomaly execution result into watchtower table"""
+        table_id = (
+            f"{self.project_id}."
+            f"{dataset}."
+            f"dq_anomaly_watchtower_results"
+        )
+
+        rows = [result_record]
+
+        print("INSERTING ANOMALY RESULT:")
+        print(result_record)
+
+        errors = self.client.insert_rows_json(
+            table_id,
+            rows
+        )
+
+        if errors:
+            raise Exception(errors)
+
+        print("ANOMALY INSERT SUCCESS")
 
     def execute_rule_sql(self, sql):
 

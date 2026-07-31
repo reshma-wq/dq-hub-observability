@@ -10,6 +10,7 @@ from app.utils.config import (
     TARGET_DATASET,
     MODEL_NAME
 )
+from google.cloud import bigquery
 
 # # Initialize Vertex AI
 # vertexai.init(
@@ -38,6 +39,33 @@ class AIService:
         print(
             f"Using model: {MODEL_NAME}"
         )
+
+    def _get_column_type(self, table_name, column_name):
+        """Get the original data type of a column from BigQuery schema"""
+        try:
+            bq_client = bigquery.Client(project=PROJECT_ID)
+            table = bq_client.get_table(f"{PROJECT_ID}.{TARGET_DATASET}.{table_name}")
+            
+            for field in table.schema:
+                if field.name == column_name:
+                    # Map BigQuery types to CAST types
+                    field_type = field.field_type.upper()
+                    if 'DATE' in field_type:
+                        return 'DATE'
+                    elif 'TIMESTAMP' in field_type:
+                        return 'TIMESTAMP'
+                    elif 'STRING' in field_type:
+                        return 'STRING'
+                    elif 'INT' in field_type:
+                        return 'INT64'
+                    elif 'FLOAT' in field_type or 'NUMERIC' in field_type:
+                        return 'FLOAT64'
+                    return field_type
+            
+            return 'STRING'  # Default fallback
+        except Exception as e:
+            print(f"Error getting column type for {table_name}.{column_name}: {str(e)}")
+            return 'STRING'
 
     def generate_rules(self, table_name):
 
@@ -1173,6 +1201,354 @@ Return raw JSON only.
                 continue
 
         return rules
+
+    def generate_anomalies(self, table_name):
+        """Generate AI-suggested anomalies by comparing previous vs current scan"""
+        import json
+        from app.services.backup import BackupService, TABLE_INCREMENTAL_CONFIG
+        
+        # Initialize backup service to get scan history
+        backup_service = BackupService()
+        
+        # Fetch schema and knowledge context
+        schema = self.bq.get_table_schema(TARGET_DATASET, table_name)
+        knowledge_context = self.bq.get_knowledge_context(table_name)
+        knowledge_json = json.dumps(knowledge_context, indent=2, default=str)
+        
+        full_table_name = f"{PROJECT_ID}.{TARGET_DATASET}.{table_name}"
+        
+        # Get scan history
+        latest_scan = backup_service.get_latest_scan(table_name)
+        previous_scan = backup_service.get_previous_scan(table_name)
+        
+        # Backup table is REQUIRED for anomaly generation
+        if not latest_scan:
+            return {
+                "status": "error",
+                "message": f"No backup records found for {table_name}. Run checks first to create backup history."
+            }
+        
+        # NOTE: We use placeholder names only, NOT actual date values
+        # This ensures AI generates template SQL with placeholders, not hardcoded dates
+        incremental_column = TABLE_INCREMENTAL_CONFIG.get(table_name)
+        
+        # Get the original data type of the incremental column for CAST
+        col_type = 'STRING'  # Default
+        if incremental_column:
+            col_type = self._get_column_type(table_name, incremental_column)
+            print(f"Incremental column '{incremental_column}' has type: {col_type}")
+        
+        # Build prompt with PLACEHOLDER NAMES only (no actual date values)
+        # Use format() instead of f-strings to avoid substitution confusion
+        prompt = """
+You are a world-class Enterprise Data Quality, Anomaly Detection, and Data Monitoring Expert.
+
+Your responsibility is to generate enterprise-grade Anomaly Detection rules using PLACEHOLDERS for dates.
+
+CRITICAL INSTRUCTION: Your compiled_sql MUST use PLACEHOLDER STRINGS, NOT actual dates.
+
+==================================================
+PLACEHOLDER NAMES (Use these EXACTLY in your SQL)
+==================================================
+
+For all period comparisons, use ONLY these placeholder strings:
+- '{previous_start}' for previous period start date
+- '{previous_end}' for previous period end date  
+- '{current_start}' for current period start date
+- '{current_end}' for current period end date
+
+Example: BETWEEN '{previous_start}' AND '{previous_end}'
+Example: BETWEEN '{current_start}' AND '{current_end}'
+
+CRITICAL: Use single curly braces {{}}, NOT double braces {{}}{{}}, in your output.
+
+==================================================
+BIGQUERY TABLE
+==================================================
+
+{full_table_name}
+
+==================================================
+SCHEMA
+==================================================
+
+{schema}
+
+==================================================
+ENTERPRISE KNOWLEDGE HUB
+==================================================
+
+{knowledge_json}
+
+==================================================
+IMPORTANT: ALWAYS USE PLACEHOLDERS
+==================================================
+
+DO NOT use actual date values in compiled_sql.
+DO NOT substitute dates like '2026-07-01' or '2026-07-03'.
+DO NOT create dates from scan data.
+
+ONLY use placeholder strings: '{{previous_start}}', '{{previous_end}}', '{{current_start}}', '{{current_end}}'
+
+These will be replaced with actual dates at execution time by the system.
+
+ANOMALY PRIORITY HIERARCHY
+==================================================
+
+Generate anomalies using this priority framework. These are EXAMPLES - generate ALL applicable anomalies for this table.
+
+VOLUME ANOMALIES
+
+Detect changes in record count:
+- Total Row Count Change - Records count difference from previous to current period
+- Table-level comparisons - Compare total records between periods
+- Row count thresholds - Detect when count exceeds or drops below expectations
+- Batch size anomalies - Detect unusual batch patterns
+
+--------------------------------------------------
+
+METRIC BEHAVIOR ANOMALIES
+
+Detect changes in numeric aggregations. For EVERY numeric column, detect:
+- Column Value Change (SUM, AVG, COUNT) - Difference from previous to current
+- Column Null Count Change - NULL values count difference
+- Column Min/Max Changes - Range expansion or contraction
+- Column Outlier Detection - Values outside historical ranges
+- Column Distribution Changes - Standard deviation or variance changes
+- Column Zero/Negative Count Changes - Unusual values appearing or disappearing
+
+--------------------------------------------------
+
+KPI BEHAVIOR ANOMALIES
+
+Detect changes in calculated metrics/ratios:
+- CTR Change - Click-Through Rate changes
+- CPC Change - Cost-Per-Click changes
+- CPM Change - Cost-Per-Mille changes
+- ROAS Change - Return-On-Ad-Spend changes
+- Conversion Rate Change - Conversion ratio changes
+- Margin Change - Profit margin deviations
+- Any ratio/percentage metric deviations
+- Cross-metric consistency - When related metrics diverge unexpectedly
+
+--------------------------------------------------
+
+DISTRIBUTION SHIFT ANOMALIES
+
+Detect changes in categorical data distribution. For EVERY string/categorical column, detect:
+- Column Distribution Change - Distribution mix changes
+- Column Top Value Change - Most common value changes
+- Column Null Count Change - NULL values count difference
+- Column Cardinality Change - Number of unique values difference
+- Column New Values Appearing - Previously unseen category values
+- Column Values Disappearing - Previously present values no longer appearing
+- Column Distribution Entropy Change - Uniformity/concentration changes
+
+==================================================
+ANOMALY CATEGORIES
+==================================================
+
+1. VOLUME - Row count changes
+2. METRIC_BEHAVIOR - Numeric aggregation changes (SUM, AVG, COUNT)
+3. KPI_BEHAVIOR - Ratio/metric deviations (CTR, CPC, CPM, ROAS)
+4. DISTRIBUTION - Categorical distribution shifts
+
+==================================================
+OUTPUT REQUIREMENTS
+==================================================
+
+Generate ALL applicable anomalies for this table.
+
+Do NOT limit by number - generate as many anomalies as are applicable.
+
+Do NOT skip columns - analyze every column.
+
+Generate MULTIPLE anomalies per column where applicable.
+
+For every generated anomaly, provide JSON:
+
+{{
+  "anomaly_name": "DESCRIPTIVE_NAME",
+  "anomaly_category": "VOLUME|METRIC_BEHAVIOR|KPI_BEHAVIOR|DISTRIBUTION",
+  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+  "column_name": "column_name or null if table-level",
+  "description": "What changed and why it matters",
+  "sql_condition": "Simple WHERE clause condition for the anomaly",
+  "compiled_sql": "SELECT statement comparing periods with previous_value, current_value, change_pct"
+}}
+
+sql_condition REQUIREMENTS:
+
+- Simple WHERE clause that identifies anomalous records
+- For VOLUME anomalies: "COUNT(*) > threshold" or similar
+- For METRIC_BEHAVIOR: "SUM(column) increased by more than 50%" or similar description
+- For DISTRIBUTION: "Top value distribution changed significantly" or similar
+- For DATA_QUALITY: "NULL count increased" or similar
+- Must be human-readable, not full SQL
+- Should summarize the anomaly detection logic
+
+compiled_sql REQUIREMENTS:
+
+- Use fully-qualified table name: {full_table_name}
+- Compare two periods:
+  - Previous: {previous_start} to {previous_end}
+  - Current: {current_start} to {current_end}
+- Filter using {incremental_column if incremental_column else '(no filter)'}
+- CRITICAL: Output EXACTLY these 10 columns in this EXACT order in SELECT clause:
+  1. execution_ts AS CURRENT_TIMESTAMP() (NOT in WHERE clause, in SELECT)
+  2. table_name AS literal string (NOT in WHERE clause, in SELECT)
+  3. column_name AS literal string (NOT in WHERE clause, in SELECT)
+  4. anomaly_name AS literal string (NOT in WHERE clause, in SELECT)
+  5. previous_records_count AS count of records in previous period
+  6. current_records_count AS count of records in current period
+  7. previous_value AS numeric value (from previous period)
+  8. current_value AS numeric value (from current period)
+  9. absolute_diff AS actual difference (current_value - previous_value)
+  10. change_pct AS percentage change
+- ALL 10 COLUMNS MUST appear in the final SELECT statement
+- FORMATTING REQUIREMENT: Format SQL with proper line breaks and indentation
+  - Each SELECT column on new line with proper indentation
+  - Each FROM/WHERE/JOIN on new line
+  - Nested CASE WHEN statements indented properly
+  - Make SQL readable when stored in database (NOT single paragraph)
+- Use CASE WHEN for period comparison
+- Use SAFE_DIVIDE for division: SAFE_DIVIDE((current_value - previous_value), previous_value) * 100
+- FORMATTED Example (with placeholders and CAST - MUST use single curly braces):
+  SELECT
+    CURRENT_TIMESTAMP() AS execution_ts,
+    'sales' AS table_name,
+    'quantity' AS column_name,
+    'quantity_change' AS anomaly_name,
+    COUNT(CASE WHEN sale_date BETWEEN CAST('{previous_start}' AS TIMESTAMP) AND CAST('{previous_end}' AS TIMESTAMP) THEN 1 END) AS previous_records_count,
+    COUNT(CASE WHEN sale_date BETWEEN CAST('{current_start}' AS TIMESTAMP) AND CAST('{current_end}' AS TIMESTAMP) THEN 1 END) AS current_records_count,
+    SUM(CASE WHEN sale_date BETWEEN CAST('{previous_start}' AS TIMESTAMP) AND CAST('{previous_end}' AS TIMESTAMP) THEN quantity ELSE 0 END) AS previous_value,
+    SUM(CASE WHEN sale_date BETWEEN CAST('{current_start}' AS TIMESTAMP) AND CAST('{current_end}' AS TIMESTAMP) THEN quantity ELSE 0 END) AS current_value,
+    SUM(CASE WHEN sale_date BETWEEN CAST('{current_start}' AS TIMESTAMP) AND CAST('{current_end}' AS TIMESTAMP) THEN quantity ELSE 0 END) - 
+    SUM(CASE WHEN sale_date BETWEEN CAST('{previous_start}' AS TIMESTAMP) AND CAST('{previous_end}' AS TIMESTAMP) THEN quantity ELSE 0 END) AS absolute_diff,
+    SAFE_DIVIDE(
+      SUM(CASE WHEN sale_date BETWEEN CAST('{current_start}' AS TIMESTAMP) AND CAST('{current_end}' AS TIMESTAMP) THEN quantity ELSE 0 END) - 
+      SUM(CASE WHEN sale_date BETWEEN CAST('{previous_start}' AS TIMESTAMP) AND CAST('{previous_end}' AS TIMESTAMP) THEN quantity ELSE 0 END),
+      SUM(CASE WHEN sale_date BETWEEN CAST('{previous_start}' AS TIMESTAMP) AND CAST('{previous_end}' AS TIMESTAMP) THEN quantity ELSE 0 END)
+    ) * 100 AS change_pct
+  FROM dq-universal-framework1.thd_bronze.sales
+  
+CRITICAL: In your output, the compiled_sql MUST contain these exact placeholder strings with SINGLE braces:
+- '{previous_start}' (single braces, not double)
+- '{previous_end}' (single braces, not double)
+- '{current_start}' (single braces, not double)
+- '{current_end}' (single braces, not double)
+- DO NOT hide any columns in subqueries - all 10 must be visible in final SELECT
+- DO NOT return as single-line paragraph - use proper formatting with newlines and indentation
+
+==================================================
+CRITICAL RULES
+==================================================
+
+RULE 1: Use PLACEHOLDERS with CAST for all dates in compiled_sql
+- DO NOT use actual date values like '2026-07-01'
+- DO NOT substitute the placeholder values
+- Use CAST with the incremental column type: CAST('{{placeholder}}' AS {col_type})
+- Example: WHERE {incremental_column} BETWEEN CAST('{{previous_start}}' AS {col_type}) AND CAST('{{previous_end}}' AS {col_type})
+- The incremental column is: {incremental_column}
+- Its original data type is: {col_type}
+- CRITICAL: Every date placeholder MUST be wrapped with CAST('{{placeholder}}' AS {col_type})
+
+RULE 2: Compare using placeholders
+- Previous period: {previous_start} to {previous_end}
+- Current period: {current_start} to {current_end}
+- Do NOT invent columns
+- Only generate anomalies for columns that exist
+
+RULE 3: Use actual column names from schema
+- Numeric columns: Metric behavior anomalies
+- String/categorical columns: Distribution shift anomalies
+- All tables: Volume anomalies
+
+RULE 4: Set appropriate severity (based on anomaly type, NOT threshold %)
+- CRITICAL: Business-critical metrics (revenue, conversions, transactions, etc.)
+- HIGH: Important operational metrics (clicks, impressions, spend, budget, etc.)
+- MEDIUM: Supporting metrics (averages, distributions, performance ratios, etc.)
+- LOW: Informational metrics (nulls, cardinality, data quality indicators, etc.)
+
+RULE 5: Return ONLY valid JSON array
+
+Return ONLY valid JSON. No markdown, no explanations.
+
+[
+  {{anomaly_1}},
+  {{anomaly_2}},
+  ...
+]
+
+If not enough scan history: []
+
+==================================================
+BONUS: DOMAIN-SPECIFIC ANOMALIES
+==================================================
+
+In addition to the above framework, please suggest ANY other important anomalies you identify based on:
+
+- The schema and data types of this table
+- The business context from the Knowledge Hub
+- Domain expertise as a Data Quality expert
+- Relationships between columns
+- Business rules mentioned in column definitions
+- Critical business metrics
+
+Examples of domain-specific anomalies to consider:
+- Referential integrity issues (e.g., customer_id not in Customer Master)
+- Business rule violations (e.g., discount > amount)
+- Temporal anomalies (e.g., dates out of sequence)
+- Cross-column consistency (e.g., reconciliation mismatches)
+- Threshold-based alerts (e.g., order_value > 10x average)
+- Compliance anomalies (e.g., PII exposure)
+- Ratio anomalies (e.g., discount_percentage doesn't match discount/amount)
+
+If you identify important domain-specific anomalies, add them to the JSON output with:
+- Clear anomaly_name
+- Appropriate anomaly_category (can be custom or use existing)
+- Accurate severity
+- Detailed description of business impact
+- Human-readable sql_condition
+- Executable compiled_sql
+
+Your domain expertise is valuable - do not skip anomalies just because they weren't explicitly listed above.
+"""
+
+        # Substitute only the template variables we need
+        # Keep placeholder names {{previous_start}} as literal strings
+        full_table_name = f"{PROJECT_ID}.{TARGET_DATASET}.{table_name}"
+        
+        # Replace ONLY the single-brace variables that need actual values
+        # Keep {{double_braces}} untouched so they become {single_braces} in output
+        prompt_formatted = prompt.replace(
+            "{full_table_name}", full_table_name
+        ).replace(
+            "{schema}", schema
+        ).replace(
+            "{knowledge_json}", knowledge_json
+        ).replace(
+            "{incremental_column}", TABLE_INCREMENTAL_CONFIG.get(table_name) or "None (Full Load)"
+        ).replace(
+            "{col_type}", col_type
+        )
+
+        # Generate AI response
+        print(f"🔍 Generating anomalies for table: {table_name}...")
+        response = self.client.models.generate_content(model=MODEL_NAME, contents=prompt_formatted)
+        print(f"✅ Anomalies generated successfully")
+        
+        raw_text = response.text.strip()
+        raw_text = raw_text.replace("```json", "").replace("```", "")
+        
+        try:
+            anomalies = json.loads(raw_text)
+        except Exception:
+            print("RAW GEMINI RESPONSE")
+            print(raw_text)
+            raise
+        
+        return anomalies
 
     def generate_knowledge_hub(
         self,

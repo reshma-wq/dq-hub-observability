@@ -70,6 +70,13 @@ html,body{
   -webkit-font-smoothing:antialiased;
   min-height:100vh;
 }
+/* Scrollbar styling */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--border)}
+/* Firefox scrollbar */
+* {scrollbar-color:var(--border-strong) transparent;scrollbar-width:thin}
 .mono{font-family:'IBM Plex Mono','JetBrains Mono',monospace}
 .app{max-width:1280px;margin:0 auto;padding:20px}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
@@ -251,6 +258,36 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 .tab:hover{color:var(--text-primary)}
 .tab.active{color:var(--text-primary);border-bottom-color:var(--accent);font-weight:500}
 .tab .count{background:var(--bg-elevated-2);color:var(--text-secondary);font-size:10px;padding:1px 6px;border-radius:6px;font-weight:500}
+
+/* Tab content */
+.tab-content{display:none;animation:fadeIn .25s ease-out}
+.tab-content.active{display:block}
+
+/* Anomalies styling */
+.anomalies-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;padding:14px 16px;background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:var(--radius-md)}
+.anomalies-header h3{font-size:14px;font-weight:500;margin:0}
+.anomalies-controls{display:flex;gap:10px;align-items:center}
+.anomalies-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:18px}
+.anomaly-card{
+  background:var(--bg-elevated);border:0.5px solid var(--border);
+  border-radius:var(--radius-md);padding:14px;cursor:pointer;
+  transition:all .15s;display:flex;gap:10px;
+}
+.anomaly-card:hover{border-color:var(--border-strong);background:var(--bg-hover)}
+.anomaly-checkbox{accent-color:var(--accent);flex-shrink:0;margin-top:2px}
+.anomaly-content{flex:1;min-width:0}
+.anomaly-header{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+.anomaly-name{font-weight:500;font-size:13px;flex:1}
+.anomaly-severity{font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;text-transform:uppercase;white-space:nowrap}
+.anomaly-severity.critical{background:rgba(240,82,76,0.2);color:var(--danger)}
+.anomaly-severity.high{background:rgba(245,166,35,0.2);color:var(--warning)}
+.anomaly-severity.medium{background:rgba(74,138,232,0.2);color:var(--info)}
+.anomaly-severity.low{background:rgba(107,114,128,0.15);color:var(--text-secondary)}
+.anomaly-column{font-size:11px;color:var(--text-secondary);margin-bottom:4px;font-family:'IBM Plex Mono',monospace}
+.anomaly-description{font-size:12px;color:var(--text-secondary);line-height:1.4}
+.anomalies-actions{display:flex;gap:10px;justify-content:space-between;padding:14px 16px;background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:var(--radius-md);border-top:none}
+.anomalies-loading{text-align:center;padding:40px;color:var(--text-secondary)}
+.spinner-small{width:16px;height:16px;border:2px solid var(--text-tertiary);border-top-color:var(--text-primary);border-radius:50%;animation:spin .8s linear infinite;display:inline-block;margin-right:8px;vertical-align:-2px}
 
 /* Section labels */
 .section{margin-bottom:18px}
@@ -519,6 +556,7 @@ input,select,textarea{font-family:inherit;font-size:inherit}
 </div>
 
 <aside id="add-rule-panel" class="panel" aria-label="Add rule panel"></aside>
+<aside id="add-anomaly-panel" class="panel" aria-label="Add anomaly panel"></aside>
 <div id="panel-backdrop" class="panel-backdrop"></div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -537,8 +575,14 @@ input,select,textarea{font-family:inherit;font-size:inherit}
         <button id="preview-modal-close" style="background:transparent;border:none;color:var(--text-secondary);font-size:18px;cursor:pointer;padding:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center"><i class="ti ti-x"></i></button>
       </div>
       
+      <!-- Tabs -->
+      <div style="display:flex;gap:0;padding:0 20px;border-bottom:0.5px solid var(--border);flex-shrink:0;background:var(--bg-base)">
+        <button id="preview-tab-data" class="btn" style="background:transparent;border:none;color:var(--text-primary);padding:12px 16px;font-size:13px;font-weight:500;border-bottom:2px solid var(--accent);cursor:pointer">Preview Data</button>
+        <button id="preview-tab-profiling" class="btn" style="background:transparent;border:none;color:var(--text-secondary);padding:12px 16px;font-size:13px;font-weight:500;border-bottom:2px solid transparent;cursor:pointer">Data Catalog Profile</button>
+      </div>
+      
       <!-- KPI Stats -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 20px;flex-shrink:0">
+      <div id="preview-kpi-section" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 20px;flex-shrink:0">
         <div style="background:var(--bg-elevated);border:0.5px solid var(--border);border-radius:6px;padding:12px 14px">
           <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;font-weight:500;margin-bottom:8px">Rows scanned</div>
           <div style="font-size:24px;font-weight:500;color:var(--text-primary)" id="preview-stat-scanned">-</div>
@@ -558,7 +602,7 @@ input,select,textarea{font-family:inherit;font-size:inherit}
       </div>
       
       <!-- Data preview label and filter buttons -->
-      <div style="padding:12px 20px;border-bottom:0.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <div id="preview-filter-section" style="padding:12px 20px;border-bottom:0.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
         <div style="font-size:12px;color:var(--text-secondary)" id="preview-data-label">Data preview - 0 records</div>
         <div style="display:flex;gap:8px">
           <button id="preview-filter-failing" class="btn" style="background:var(--danger);border-color:var(--danger);color:#fff;font-weight:500">Failing Records</button>
@@ -567,9 +611,16 @@ input,select,textarea{font-family:inherit;font-size:inherit}
       </div>
       
       <!-- Data Table (fills remaining space) -->
-      <div style="flex:1;overflow:auto;padding:12px 20px 20px;display:flex;flex-direction:column;min-height:0">
+      <div id="preview-data-section" style="flex:1;overflow:auto;padding:12px 20px 20px;display:flex;flex-direction:column;min-height:0">
         <div id="preview-table-container" style="border:0.5px solid var(--border);border-radius:6px;overflow:auto;font-size:12px;flex:1;display:flex;flex-direction:column">
           <div style="padding:40px;text-align:center;color:var(--text-secondary);font-size:12px;margin:auto">Loading...</div>
+        </div>
+      </div>
+      
+      <!-- Data Catalog Profile (hidden by default) -->
+      <div id="preview-profiling-section" style="display:none;flex:1;overflow:hidden;padding:0;min-height:0">
+        <div id="preview-profiling-container" style="min-height:100%;width:100%">
+          <div style="text-align:center;color:var(--text-secondary);padding:40px">Loading profile data...</div>
         </div>
       </div>
     </div>
@@ -672,6 +723,9 @@ document.getElementById('preview-modal-submit')?.addEventListener('click', async
 // ─────────────────────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────────────────────
+// CONFIGURATION CONSTANTS
+// ─────────────────────────────────────────────────────────────
+const SCAN_TIMEOUT_SECONDS = 300; // 5 minutes timeout for scan completion
 
 const state = {
   scanRunning: false,
@@ -691,10 +745,20 @@ const state = {
     sqlCondition: '',
     params: { v1: '', v2: '' },
   },
+  addAnomaly: {
+    tab: 'custom',
+    column: '',
+    description: '',
+    sqlCondition: '',
+  },
   aiExpanded: false,
   aiDismissed: false,
+  aiAnomaliesExpanded: false,
   scanRunning: false,
   incidentStatus: 'Open',
+  scanTriggered: false,
+  scanTriggeredTable: null,
+  scanTriggeredColumn: null,
   incidentAssignee: 'unassigned',
   recentlyAddedRuleId: null,
   dashboardSummary: {
@@ -2050,15 +2114,26 @@ async function renderTableDetail() {
         ${inlineStatsHTML}
 
         <div class="tabs">
-          <div class="tab active"><i class="ti ti-list-check"></i>Rules <span class="count">${t.rules.length}</span></div>
-          <div class="tab"><i class="ti ti-history"></i>History</div>
-          <div class="tab"><i class="ti ti-affiliate"></i>Lineage</div>
-          <div class="tab"><i class="ti ti-settings"></i>Settings</div>
+          <div class="tab active" data-tab="rules"><i class="ti ti-list-check"></i>Rules <span class="count">${t.rules.length}</span></div>
+          <div class="tab" data-tab="anomalies"><i class="ti ti-alert-circle"></i>Anomalies</div>
+          <div class="tab" data-tab="history"><i class="ti ti-history"></i>History</div>
+          <div class="tab" data-tab="lineage"><i class="ti ti-affiliate"></i>Lineage</div>
+          <div class="tab" data-tab="settings"><i class="ti ti-settings"></i>Settings</div>
         </div>
 
-        ${baselineHTML}
-        ${customHTML}
-        ${aiHTML}
+        <div id="tab-rules-content" class="tab-content active">
+          ${baselineHTML}
+          ${customHTML}
+          ${aiHTML}
+        </div>
+
+        <div id="tab-anomalies-content" class="tab-content" style="display:none">
+          <div id="anomalies-panel" style="min-height:300px"></div>
+        </div>
+
+        <div id="tab-history-content" class="tab-content" style="display:none"></div>
+        <div id="tab-lineage-content" class="tab-content" style="display:none"></div>
+        <div id="tab-settings-content" class="tab-content" style="display:none"></div>
       </div>
     </div>
   `;
@@ -2340,6 +2415,638 @@ if (aiAddSelected) {
       );
     };
 }
+
+// Tab switching
+$$('.tabs .tab').forEach((tab, idx) => {
+  tab.onclick = () => {
+    const tabName = tab.dataset.tab;
+    
+    // Update active tab button
+    $$('.tabs .tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    // Update content visibility
+    $$('.tab-content').forEach(tc => {
+      tc.classList.remove('active');
+      tc.style.display = 'none';
+    });
+    
+    const contentEl = $(`#tab-${tabName}-content`);
+    if (contentEl) {
+      contentEl.classList.add('active');
+      contentEl.style.display = 'block';
+      
+      // Initialize anomalies tab
+      if (tabName === 'anomalies') {
+        renderAnomaliesTab(state.currentTable);
+      }
+    }
+  };
+});
+
+}
+// ─────────────────────────────────────────────────────────────
+// RENDER: ANOMALIES TAB
+// ─────────────────────────────────────────────────────────────
+
+async function renderAnomaliesTab(tableName) {
+  const t = currentTable();
+  if (!t) return;
+  
+  const panel = $('#anomalies-panel');
+  if (!panel) return;
+  
+  // Anomaly suggestions (from state)
+  const aiAnomalies = t.aiAnomalies || [];
+  
+  // ─────────────────────────────────────────────────────────────
+  // FETCH ACTIVE ANOMALIES UPFRONT
+  // ─────────────────────────────────────────────────────────────
+  let activeAnomalies = [];
+  try {
+    const response = await fetch(`/execution/anomalies/${tableName}`);
+    activeAnomalies = await response.json();
+    console.log('[renderAnomaliesTab] Active anomalies response:', activeAnomalies);
+    
+    if (!Array.isArray(activeAnomalies)) {
+      activeAnomalies = [];
+    } else if (activeAnomalies.length > 0) {
+      console.log('[renderAnomaliesTab] Found', activeAnomalies.length, 'active anomalies');
+      
+      // Deduplicate on frontend as safety measure
+      const seen = new Set();
+      const dedupedAnomalies = [];
+      for (const anom of activeAnomalies) {
+        const key = `${anom.column_name}|${anom.anomaly_name}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          dedupedAnomalies.push(anom);
+          console.log(`[renderAnomaliesTab] Added - ${anom.column_name} + ${anom.anomaly_name}`);
+        } else {
+          console.log(`[renderAnomaliesTab] SKIPPED DUPLICATE - ${anom.column_name} + ${anom.anomaly_name}`);
+        }
+      }
+      console.log(`[renderAnomaliesTab] Deduped from ${activeAnomalies.length} to ${dedupedAnomalies.length} records`);
+      activeAnomalies = dedupedAnomalies;
+    } else {
+      console.log('[renderAnomaliesTab] No active anomalies found');
+    }
+  } catch (e) {
+    console.error('[ERROR renderAnomaliesTab] Error fetching active anomalies:', e);
+    activeAnomalies = [];
+  }
+  
+  // ─────────────────────────────────────────────────────────────
+  // DETERMINE WHICH LAYOUT TO SHOW
+  // ─────────────────────────────────────────────────────────────
+  let emptyHTML = '';
+  let activeHTML = '';
+  let aiHTML = '';
+  
+  // EMPTY STATE: No active anomalies AND NO AI suggestions
+  if (activeAnomalies.length === 0 && aiAnomalies.length === 0) {
+    emptyHTML = `
+      <div class="empty">
+        <h3>No anomalies yet</h3>
+        <p>Start with AI suggestions tailored to this table's schema.</p>
+        <div class="btn-row">
+          <button id="suggest-anomalies-btn" class="btn btn-primary"><i class="ti ti-sparkles"></i>Suggest anomalies with AI</button>
+        </div>
+      </div>
+    `;
+  }
+  
+  // ACTIVE ANOMALIES SECTION: Only show if activeAnomalies.length > 0
+  if (activeAnomalies.length > 0) {
+    const rowsHTML = activeAnomalies.map((anom, idx) => `
+      <div class="rt-row anomaly-row" style="cursor:pointer" data-anom-idx="${idx}" data-anom-name="${anom.anomaly_name}" data-col-name="${anom.column_name}" data-full-anom='${JSON.stringify(anom)}'>
+        <div class="rt-col mono" style="color: var(--text-secondary);">${anom.column_name || 'Table'}</div>
+        <div class="rt-col" style="color: var(--text-primary); font-weight: 500;">${anom.anomaly_name}</div>
+        <div class="rt-col" style="color: ${anom.change_pct > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 500;">
+          ${anom.change_pct !== null && anom.change_pct !== undefined ? (anom.change_pct > 0 ? '+' : '') + anom.change_pct.toFixed(2) + '%' : 'N/A'}
+        </div>
+      </div>
+    `).join('');
+    
+    activeHTML = `
+      <div class="section">
+        <div class="section-label">
+          <span>Active Anomalies</span>
+          <div class="right">
+            <button class="btn btn-sm btn-primary" id="add-anomaly-btn" style="display:flex;align-items:center;gap:6px"><i class="ti ti-sparkles"></i>Suggest with AI</button>
+          </div>
+        </div>
+        <div class="rules-table">
+          <div class="rt-head">
+            <div>COLUMN</div>
+            <div>ANOMALY</div>
+            <div>CHANGE %</div>
+          </div>
+          <div id="active-anomalies-rows">${rowsHTML}</div>
+        </div>
+      </div>
+    `;
+  }
+  
+  // AI SUGGESTIONS SECTION
+  if (aiAnomalies.length > 0 && state.aiAnomaliesExpanded) {
+    // Expanded view - show grid with checkboxes
+    aiHTML = `
+      <div class="ai-expanded">
+        <div class="ai-exp-head">
+          <div class="ai-exp-title">
+            <i class="ti ti-sparkles"></i>AI-suggested anomalies
+            <span class="meta">${aiAnomalies.length} found</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button id="regenerate-anomalies-btn" class="btn btn-sm"><i class="ti ti-refresh"></i>Regenerate</button>
+            <button id="ai-anomalies-collapse" class="btn btn-sm btn-ghost"><i class="ti ti-chevron-up"></i></button>
+          </div>
+        </div>
+        <div class="ai-grid-head">
+          <div><input type="checkbox" id="ai-sel-all-anomalies"></div>
+          <div>Category</div>
+          <div>Column</div>
+          <div>Anomaly</div>
+          <div>SQL preview</div>
+        </div>
+        ${aiAnomalies.map((a, idx) => `
+          <div class="ai-grid-row">
+            <div><input type="checkbox" class="ai-anomaly-sel" data-anom="${a.id}" ${state.addRule.aiSelected.includes(a.id) ? 'checked' : ''}></div>
+            <div>${getCategoryBadge(a.anomaly_category)}</div>
+            <div class="ai-sug-col">${a.column_name || 'Table'}</div>
+            <div>
+              <div class="ai-sug-name">${a.anomaly_name}</div>
+              <div class="ai-sug-desc">${a.description}</div>
+            </div>
+            <div class="ai-sql">${a.sql_condition || 'N/A'}</div>
+          </div>
+        `).join('')}
+        <div class="ai-exp-foot">
+          <span style="color:var(--text-secondary)" id="ai-anom-counter">0 of ${aiAnomalies.length} selected</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" id="ai-dismiss-all-anom">Dismiss all</button>
+            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span> anomal<span id="anom-plural">ies</span></button>
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (aiAnomalies.length > 0) {
+    // Collapsed view - show banner
+    aiHTML = `
+      <div class="ai-banner" id="ai-anomalies-expand">
+        <div class="left">
+          <i class="ti ti-sparkles"></i>
+          <span>${aiAnomalies.length} AI-suggested anomal${aiAnomalies.length === 1 ? 'y' : 'ies'} ready to review</span>
+        </div>
+        <span style="color:var(--text-secondary);font-size:12px;display:flex;align-items:center;gap:4px">View <i class="ti ti-chevron-right"></i></span>
+      </div>
+    `;
+  }
+  
+  panel.innerHTML = emptyHTML + activeHTML + aiHTML;
+  
+  // ─────────────────────────────────────────────────────────────
+  // WIRE UP EVENT HANDLERS
+  // ─────────────────────────────────────────────────────────────
+  
+  // Empty state - Suggest button
+  const suggestBtn = $('#suggest-anomalies-btn');
+  if (suggestBtn) {
+    suggestBtn.onclick = async () => {
+      await generateAnomaliesAI(tableName);
+    };
+  }
+  
+  // Collapsed view - Expand banner
+  const expandBtn = $('#ai-anomalies-expand');
+  if (expandBtn) {
+    expandBtn.onclick = () => {
+      state.aiAnomaliesExpanded = true;
+      renderAnomaliesTab(tableName);
+    };
+  }
+  
+  // Expanded view - Collapse button
+  const collapseBtn = $('#ai-anomalies-collapse');
+  if (collapseBtn) {
+    collapseBtn.onclick = () => {
+      state.aiAnomaliesExpanded = false;
+      renderAnomaliesTab(tableName);
+    };
+  }
+  
+  // Regenerate button
+  const regenBtn = $('#regenerate-anomalies-btn');
+  if (regenBtn) {
+    regenBtn.onclick = async () => {
+      await generateAnomaliesAI(tableName);
+    };
+  }
+  
+  // Select all checkbox
+  const selAll = $('#ai-sel-all-anomalies');
+  if (selAll) {
+    selAll.onchange = (e) => {
+      state.addRule.aiSelected = e.target.checked ? aiAnomalies.map(a => a.id) : [];
+      renderAnomaliesTab(tableName);
+    };
+  }
+  
+  // Individual checkboxes
+  $$('.ai-anomaly-sel').forEach(cb => {
+    cb.onchange = (e) => {
+      const id = e.target.dataset.anom;
+      if (e.target.checked) {
+        if (!state.addRule.aiSelected.includes(id)) {
+          state.addRule.aiSelected.push(id);
+        }
+      } else {
+        state.addRule.aiSelected = state.addRule.aiSelected.filter(x => x !== id);
+      }
+      
+      // Update counter and button
+      const counter = $('#ai-anom-counter');
+      const countDisplay = $('#anom-count');
+      const pluralEl = $('#anom-plural');
+      const addBtn = $('#ai-add-selected-anom');
+      const selAllCb = $('#ai-sel-all-anomalies');
+      
+      const checked = state.addRule.aiSelected.length;
+      if (counter) counter.textContent = `${checked} of ${aiAnomalies.length} selected`;
+      if (countDisplay) countDisplay.textContent = checked;
+      if (pluralEl) pluralEl.textContent = checked === 1 ? 'y' : 'ies';
+      if (selAllCb) selAllCb.checked = checked === aiAnomalies.length;
+      if (addBtn) {
+        addBtn.style.opacity = checked === 0 ? '0.5' : '1';
+        addBtn.style.pointerEvents = checked === 0 ? 'none' : 'auto';
+      }
+    };
+  });
+  
+  // Dismiss all button
+  const dismissAll = $('#ai-dismiss-all-anom');
+  if (dismissAll) {
+    dismissAll.onclick = () => {
+      state.addRule.aiSelected = [];
+      t.aiAnomalies = [];
+      state.aiAnomaliesExpanded = false;
+      showToast('AI suggestions dismissed', 'info');
+      renderAnomaliesTab(tableName);
+    };
+  }
+  
+  // Add selected button
+  const addBtn = $('#ai-add-selected-anom');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      await registerSelectedAnomalies(tableName);
+    };
+  }
+  
+  // "Suggest with AI" button - now in active anomalies section header (if exists) or empty state
+  const suggestAnomalyBtn = $('#add-anomaly-btn');
+  if (suggestAnomalyBtn) {
+    suggestAnomalyBtn.onclick = async () => {
+      await generateAnomaliesAI(tableName);
+    };
+  }
+  
+  // Click handler for anomaly rows - show drilldown detail inline
+  const anomalyRows = $$('.anomaly-row');
+  anomalyRows.forEach((row, idx) => {
+    row.onclick = () => {
+      const anomData = JSON.parse(row.dataset.fullAnom);
+      toggleAnomalyDetail(idx, anomData);
+    };
+  });
+}
+
+async function generateAnomaliesAI(tableName) {
+  const panel = $('#anomalies-panel');
+  if (!panel) return;
+  
+  // Show loading indicator but preserve active anomalies section
+  const activeSection = panel.querySelector('.section:first-child');
+  const tempContainer = document.createElement('div');
+  tempContainer.id = 'ai-suggestions-temp';
+  tempContainer.innerHTML = `<div class="anomalies-loading"><span class="spinner"></span>Generating anomalies...</div>`;
+  
+  if (activeSection) {
+    activeSection.after(tempContainer);
+  } else {
+    panel.appendChild(tempContainer);
+  }
+  
+  try {
+    const response = await fetch(`/rules/anomalies/generate/${tableName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
+    let anomalies = await response.json();
+    
+    if (!Array.isArray(anomalies) || anomalies.length === 0) {
+      tempContainer.innerHTML = `<div class="empty"><h3>No anomalies found</h3><p>No significant anomalies detected</p></div>`;
+      return;
+    }
+    
+    // Add unique IDs to each anomaly if not present
+    anomalies = anomalies.map((a, idx) => ({
+      ...a,
+      id: a.id || `anom_${Date.now()}_${idx}`
+    }));
+    
+    const t = currentTable();
+    if (t) {
+      t.aiAnomalies = anomalies;
+      state.aiAnomaliesExpanded = true;
+    }
+    
+    // ONLY render AI suggestions section - don't refresh the entire tab
+    // Active anomalies stay visible and unchanged
+    const aiHTML = `
+      <div class="ai-expanded">
+        <div class="ai-exp-head">
+          <div class="ai-exp-title">
+            <i class="ti ti-sparkles"></i>AI-suggested anomalies
+            <span class="meta">${anomalies.length} found</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button id="regenerate-anomalies-btn" class="btn btn-sm"><i class="ti ti-refresh"></i>Regenerate</button>
+            <button id="ai-anomalies-collapse" class="btn btn-sm btn-ghost"><i class="ti ti-chevron-up"></i></button>
+          </div>
+        </div>
+        <div class="ai-grid-head">
+          <div><input type="checkbox" id="ai-sel-all-anomalies"></div>
+          <div>Category</div>
+          <div>Column</div>
+          <div>Anomaly</div>
+          <div>SQL preview</div>
+        </div>
+        ${anomalies.map((a, idx) => `
+          <div class="ai-grid-row">
+            <div><input type="checkbox" class="ai-anomaly-sel" data-anom="${a.id}" ${state.addRule.aiSelected.includes(a.id) ? 'checked' : ''}></div>
+            <div>${getCategoryBadge(a.anomaly_category)}</div>
+            <div class="ai-sug-col">${a.column_name || 'Table'}</div>
+            <div>
+              <div class="ai-sug-name">${a.anomaly_name}</div>
+              <div class="ai-sug-desc">${a.description}</div>
+            </div>
+            <div class="ai-sql">${a.sql_condition || 'N/A'}</div>
+          </div>
+        `).join('')}
+        <div class="ai-exp-foot">
+          <span style="color:var(--text-secondary)" id="ai-anom-counter">0 of ${anomalies.length} selected</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" id="ai-dismiss-all-anom">Dismiss all</button>
+            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span> anomal<span id="anom-plural">ies</span></button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    tempContainer.innerHTML = aiHTML;
+    
+    // Attach event handlers to the newly rendered section
+    const collapseBtn = document.getElementById('ai-anomalies-collapse');
+    if (collapseBtn) {
+      collapseBtn.onclick = () => {
+        state.aiAnomaliesExpanded = false;
+        tempContainer.remove();
+      };
+    }
+    
+    const regenBtn = document.getElementById('regenerate-anomalies-btn');
+    if (regenBtn) {
+      regenBtn.onclick = async () => {
+        await generateAnomaliesAI(tableName);
+      };
+    }
+    
+    const selAll = document.getElementById('ai-sel-all-anomalies');
+    if (selAll) {
+      selAll.onchange = (e) => {
+        state.addRule.aiSelected = e.target.checked ? anomalies.map(a => a.id) : [];
+        updateAnomalyCheckboxes(anomalies);
+      };
+    }
+    
+    $$('.ai-anomaly-sel').forEach(cb => {
+      cb.onchange = (e) => {
+        const id = e.target.dataset.anom;
+        if (e.target.checked) {
+          if (!state.addRule.aiSelected.includes(id)) {
+            state.addRule.aiSelected.push(id);
+          }
+        } else {
+          state.addRule.aiSelected = state.addRule.aiSelected.filter(x => x !== id);
+        }
+        updateAnomalyCheckboxes(anomalies);
+      };
+    });
+    
+    const dismissAll = document.getElementById('ai-dismiss-all-anom');
+    if (dismissAll) {
+      dismissAll.onclick = () => {
+        state.addRule.aiSelected = [];
+        t.aiAnomalies = [];
+        state.aiAnomaliesExpanded = false;
+        showToast('AI suggestions dismissed', 'info');
+        tempContainer.remove();
+      };
+    }
+    
+    const addBtn = document.getElementById('ai-add-selected-anom');
+    if (addBtn) {
+      addBtn.onclick = async () => {
+        await registerSelectedAnomalies(tableName);
+      };
+    }
+    
+  } catch (err) {
+    console.error('Error:', err);
+    tempContainer.innerHTML = `
+      <div class="error-banner">
+        <i class="ti ti-alert-triangle"></i>
+        <div class="body">
+          <div class="title">Failed to generate anomalies</div>
+          <div class="desc">${err.message}</div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function updateAnomalyCheckboxes(anomalies) {
+  const counter = document.getElementById('ai-anom-counter');
+  const countDisplay = document.getElementById('anom-count');
+  const pluralEl = document.getElementById('anom-plural');
+  const addBtn = document.getElementById('ai-add-selected-anom');
+  const selAllCb = document.getElementById('ai-sel-all-anomalies');
+  
+  const checked = state.addRule.aiSelected.length;
+  if (counter) counter.textContent = `${checked} of ${anomalies.length} selected`;
+  if (countDisplay) countDisplay.textContent = checked;
+  if (pluralEl) pluralEl.textContent = checked === 1 ? 'y' : 'ies';
+  if (selAllCb) selAllCb.checked = checked === anomalies.length;
+  if (addBtn) {
+    addBtn.style.opacity = checked === 0 ? '0.5' : '1';
+    addBtn.style.pointerEvents = checked === 0 ? 'none' : 'auto';
+  }
+}
+
+async function registerSelectedAnomalies(tableName) {
+  const selected = state.addRule.aiSelected;
+  
+  if (selected.length === 0) {
+    showToast('Please select at least one anomaly', 'info');
+    return;
+  }
+  
+  const t = currentTable();
+  if (!t || !t.aiAnomalies) return;
+  
+  const anomalies = t.aiAnomalies.filter(a => selected.includes(a.id));
+  
+  if (anomalies.length === 0) {
+    showToast('No anomalies to add', 'info');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/rules/anomalies/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ table_name: tableName, anomalies })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const result = await response.json();
+    
+    // Update state
+    if (!t.anomalies) t.anomalies = [];
+    t.anomalies.push(...anomalies);
+    
+    // Clear AI suggestions and collapse
+    t.aiAnomalies = [];
+    state.aiAnomaliesExpanded = false;
+    state.addRule.aiSelected = [];
+    
+    showToast(`${result.anomalies_registered} anomal${result.anomalies_registered === 1 ? 'y' : 'ies'} added`, 'success');
+    
+    // ONLY refresh the AI suggestions section, NOT the entire anomalies tab
+    // This keeps the active anomalies section unchanged
+    const aiSuggestionsContainer = document.querySelector('.ai-expanded, .ai-banner');
+    if (aiSuggestionsContainer) {
+      // Remove the AI suggestions section
+      aiSuggestionsContainer.remove();
+    }
+    
+  } catch (err) {
+    console.error('Registration error:', err);
+    showToast(`Failed: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Toggle inline anomaly detail view
+ * Shows/hides detail below the anomaly row in the table
+ */
+function toggleAnomalyDetail(rowIdx, anomalyData) {
+  const rowsContainer = $('#active-anomalies-rows');
+  if (!rowsContainer) return;
+  
+  const anomalyRows = $$('.anomaly-row');
+  if (!anomalyRows || anomalyRows.length === 0) return;
+  
+  const row = anomalyRows[rowIdx];
+  if (!row) return;
+  
+  // Check if detail already exists
+  let existingDetail = row.nextElementSibling;
+  if (existingDetail && existingDetail.id && existingDetail.id.startsWith('anomaly-detail-')) {
+    // Close it
+    existingDetail.remove();
+    return;
+  }
+  
+  // Remove any other open details
+  const allDetails = rowsContainer.querySelectorAll('[id^="anomaly-detail-"]');
+  allDetails.forEach(el => el.remove());
+  
+  // Create detail HTML - horizontal layout with proper grid alignment
+  const detailHTML = `
+    <div id="anomaly-detail-${rowIdx}" style="background: var(--bg-elevated-2); padding: 24px; margin: 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px;">
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Table Name</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.table_name || 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Column Name</div>
+        <div style="font-family: monospace; color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.column_name || 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Anomaly Name</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.anomaly_name || 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Previous Records</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.previous_records_count !== null ? anomalyData.previous_records_count.toLocaleString() : 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Latest Records</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.latest_records_count !== null ? anomalyData.latest_records_count.toLocaleString() : 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Previous Value</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.previous_value !== null ? parseFloat(anomalyData.previous_value).toFixed(2) : 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Latest Value</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.latest_value !== null ? parseFloat(anomalyData.latest_value).toFixed(2) : 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Absolute Diff</div>
+        <div style="color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.absolute_diff !== null ? parseFloat(anomalyData.absolute_diff).toFixed(2) : 'N/A'}</div>
+      </div>
+      
+      <div style="display: flex; flex-direction: column;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Change %</div>
+        <div style="font-weight: 600; color: ${anomalyData.change_pct > 0 ? 'var(--danger)' : 'var(--success)'}; font-size: 14px; flex: 1; display: flex; align-items: center;">
+          ${anomalyData.change_pct !== null ? (anomalyData.change_pct > 0 ? '+' : '') + anomalyData.change_pct.toFixed(2) + '%' : 'N/A'}
+        </div>
+      </div>
+      
+    </div>
+  `;
+  
+  // Insert detail after the row
+  row.insertAdjacentHTML('afterend', detailHTML);
+}
+
+function getPillClass(category) {
+  const classes = {
+    'VOLUME': 'pill-danger',
+    'METRIC_BEHAVIOR': 'pill-warning',
+    'KPI_BEHAVIOR': 'pill-info',
+    'DISTRIBUTION': 'pill-success'
+  };
+  return classes[category] || 'pill-info';
 }
 // ─────────────────────────────────────────────────────────────
 // RENDER: INCIDENT DETAIL
@@ -2629,10 +3336,6 @@ function renderPanel() {
   $('#ar-column')?.addEventListener('change', (e) => { 
     state.addRule.column = e.target.value; 
     renderPanel();
-    // Re-attach preview button listener after renderPanel
-    setTimeout(() => {
-      $('#preview-btn')?.addEventListener('click', previewBtnClickHandler);
-    }, 0);
   });
   $('#ar-type')?.addEventListener('change', (e) => { state.addRule.type = e.target.value; renderPanel(); });
   $('#ar-v1')?.addEventListener('input', (e) => { 
@@ -2694,6 +3397,21 @@ function renderPanel() {
     backdrop.style.display = 'flex';
     $('#panel-backdrop').classList.remove('open');
     $('#add-rule-panel').classList.remove('open');
+    
+    // Reset to Preview Data tab (default)
+    document.getElementById('preview-data-section').style.display = 'block';
+    document.getElementById('preview-profiling-section').style.display = 'none';
+    document.getElementById('preview-kpi-section').style.display = 'grid';
+    document.getElementById('preview-filter-section').style.display = 'flex';
+    
+    // Clear previous profiling data
+    document.getElementById('preview-profiling-container').innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px">Loading profile data...</div>';
+    
+    // Update tab styles to show Preview Data as active
+    document.getElementById('preview-tab-data').style.color = 'var(--text-primary)';
+    document.getElementById('preview-tab-data').style.borderBottom = '2px solid var(--accent)';
+    document.getElementById('preview-tab-profiling').style.color = 'var(--text-secondary)';
+    document.getElementById('preview-tab-profiling').style.borderBottom = '2px solid transparent';
     
     // Initialize filter to Failing Records
     state.previewFilter = 'failing';
@@ -2762,10 +3480,285 @@ function renderPanel() {
       const tableContainer = document.getElementById('preview-table-container');
       tableContainer.innerHTML = '<div style="color:var(--danger);text-align:center;font-size:12px;padding:40px">Error loading data</div>';
     }
+    
+    // ===== TRIGGER SCAN FOR DATA PROFILING =====
+    // Now trigger the data profile scan in the background
+    try {
+      const table = state.currentTable;
+      const column = state.addRule.column;
+      
+      if (table && column) {
+        console.log(`Triggering scan for table: ${table}`);
+        
+        // Trigger scan in background (don't await, let it run)
+        fetch(`/rules/trigger-scan/${table}`, { method: 'POST' })
+          .then(response => response.json())
+          .then(result => {
+            console.log('Scan trigger result:', result);
+            if (result.status === 'triggered') {
+              console.log('Scan triggered successfully, will fetch profiling data when user switches to Data Catalog Profile tab');
+              // Store flag that scan has been triggered
+              state.scanTriggered = true;
+              state.scanTriggeredTable = table;
+              state.scanTriggeredColumn = column;
+            }
+          })
+          .catch(err => console.error('Error triggering scan:', err));
+      }
+    } catch (error) {
+      console.error('Error in scan trigger:', error);
+    }
   };
   
-  // Preview button listener
-  $('#preview-btn')?.addEventListener('click', previewBtnClickHandler);
+  // Preview button listener - attach once with proper cleanup
+  const previewBtn = $('#preview-btn');
+  if (previewBtn) {
+    // Remove any existing listeners by cloning and replacing
+    const newBtn = previewBtn.cloneNode(true);
+    previewBtn.parentNode.replaceChild(newBtn, previewBtn);
+    
+    // Add single listener
+    newBtn.addEventListener('click', previewBtnClickHandler);
+  }
+  
+  // Tab switching logic - NO SCAN TRIGGERING, just show cached data
+  document.getElementById('preview-tab-data')?.addEventListener('click', () => {
+    // Show preview data sections
+    document.getElementById('preview-data-section').style.display = 'flex';
+    document.getElementById('preview-profiling-section').style.display = 'none';
+    document.getElementById('preview-kpi-section').style.display = 'grid';
+    document.getElementById('preview-filter-section').style.display = 'flex';
+    
+    // Update tab styles
+    document.getElementById('preview-tab-data').style.color = 'var(--text-primary)';
+    document.getElementById('preview-tab-data').style.borderBottom = '2px solid var(--accent)';
+    document.getElementById('preview-tab-profiling').style.color = 'var(--text-secondary)';
+    document.getElementById('preview-tab-profiling').style.borderBottom = '2px solid transparent';
+  });
+  
+  document.getElementById('preview-tab-profiling')?.addEventListener('click', async () => {
+    // Show profiling sections
+    document.getElementById('preview-data-section').style.display = 'none';
+    document.getElementById('preview-profiling-section').style.display = 'flex';
+    document.getElementById('preview-kpi-section').style.display = 'none';
+    document.getElementById('preview-filter-section').style.display = 'none';
+    
+    // Update tab styles
+    document.getElementById('preview-tab-profiling').style.color = 'var(--text-primary)';
+    document.getElementById('preview-tab-profiling').style.borderBottom = '2px solid var(--accent)';
+    document.getElementById('preview-tab-data').style.color = 'var(--text-secondary)';
+    document.getElementById('preview-tab-data').style.borderBottom = '2px solid transparent';
+    
+    // Get current selection
+    const column = state.addRule.column;
+    const table = state.currentTable;
+    
+    if (!column || !table) {
+      document.getElementById('preview-profiling-container').innerHTML = '<div style="color:var(--danger);padding:20px">Column not selected</div>';
+      return;
+    }
+    
+    // Show loading message
+    const container = document.getElementById('preview-profiling-container');
+    
+    // ALWAYS fetch the latest data - every time this tab is clicked
+    try {
+      // First, check scan status and wait for completion if needed
+      if (state.scanTriggered && state.scanTriggeredTable === table) {
+        // Scan is running - show status and wait for it to complete
+        container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:40px;color:var(--text-secondary)"><div class="spinner" style="width:24px;height:24px;border:3px solid var(--text-tertiary);border-top-color:var(--text-primary);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px"></div><div style="font-size:14px">Data scan in progress...</div><div style="font-size:12px;margin-top:12px;color:var(--text-tertiary)">Waiting for scan to complete (up to 5 minutes)</div></div>';
+        
+        console.log(`Scan is running for table: ${table}, waiting for completion...`);
+        
+        // Wait for scan to complete
+        const scanResponse = await fetch(`/rules/trigger-scan/${table}`, {
+          method: 'POST'
+        });
+        
+        const scanResult = await scanResponse.json();
+        console.log('Scan completion result:', scanResult);
+        
+        if (scanResult.status === 'error') {
+          container.innerHTML = `<div style="color:var(--danger);padding:20px">Error: ${scanResult.error}</div>`;
+          return;
+        }
+        
+        // Mark scan as completed
+        state.scanTriggered = false;
+      }
+      
+      // Update loading message - now fetching data
+      container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:40px;color:var(--text-secondary)"><div class="spinner" style="width:24px;height:24px;border:3px solid var(--text-tertiary);border-top-color:var(--text-primary);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px"></div><div style="font-size:14px">Fetching latest profile data...</div></div>';
+      
+      // Fetch the LATEST profiling data (always fresh, no cache)
+      console.log(`Fetching LATEST profiling data for table: ${table}`);
+      const response = await fetch(`/rules/profile/${table}`);
+      const profileData = await response.json();
+      
+      if (profileData.status === 'error') {
+        container.innerHTML = `<div style="color:var(--danger);padding:20px">Error: ${profileData.error}</div>`;
+        return;
+      }
+      
+      // Render the fresh profiling data
+      renderDataCatalogProfile(profileData, column);
+      console.log('Latest profile data rendered successfully');
+      
+    } catch (error) {
+      console.error('Error in profile tab:', error);
+      container.innerHTML = '<div style="color:var(--danger);padding:20px">Failed to load profile data: ' + error.message + '</div>';
+    }
+  });
+  
+  function renderDataCatalogProfile(profileData, selectedColumn) {
+    const container = document.getElementById('preview-profiling-container');
+    const columns = profileData.columns || [];
+    
+    // Filter to show only the selected column
+    const selectedColumnData = columns.find(c => c.column_name === selectedColumn);
+    const displayColumn = selectedColumnData;
+    
+    if (!displayColumn) {
+      container.innerHTML = '<div style="color:var(--danger);padding:20px">No profiling data found for this column</div>';
+      return;
+    }
+    
+    const isNumeric = displayColumn.column_type && (displayColumn.column_type.includes('INT') || displayColumn.column_type.includes('FLOAT') || displayColumn.column_type.includes('NUMERIC'));
+    const nullPercent = (displayColumn.null_percentage || 0).toFixed(2);
+    const uniquePercent = (displayColumn.unique_percentage || 0).toFixed(2);
+    
+    let html = `
+      <div style="display:flex;flex-direction:column;gap:0;padding:0;height:100%;width:100%;background:var(--bg-base);overflow:hidden">
+        
+        <!-- LEVEL 1: Top 4 Info Items -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 20px;margin-bottom:0;border-bottom:1px solid var(--border);flex-shrink:0">
+          <div>
+            <div style="color:var(--text-tertiary);font-size:11px;text-transform:uppercase;font-weight:600;margin-bottom:8px">Column Name</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-primary);word-break:break-word">${escapeHtml(displayColumn.column_name)}</div>
+          </div>
+          <div>
+            <div style="color:var(--text-tertiary);font-size:11px;text-transform:uppercase;font-weight:600;margin-bottom:8px">Type</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-primary);word-break:break-word">${escapeHtml(displayColumn.column_type)}</div>
+          </div>
+          <div>
+            <div style="color:var(--text-tertiary);font-size:11px;text-transform:uppercase;font-weight:600;margin-bottom:8px">Null %</div>
+            <div style="font-size:14px;font-weight:600;color:var(--danger)">${nullPercent}%</div>
+          </div>
+          <div>
+            <div style="color:var(--text-tertiary);font-size:11px;text-transform:uppercase;font-weight:600;margin-bottom:8px">Unique %</div>
+            <div style="font-size:14px;font-weight:600;color:var(--success)">${uniquePercent}%</div>
+          </div>
+        </div>
+        
+        <!-- LEVEL 2: Statistics Section (takes ~50% height) -->
+        <div style="display:flex;flex-direction:column;min-width:0;flex:0 0 auto;padding:16px 20px;border-bottom:1px solid var(--border);max-height:50%">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:12px">Statistics</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;min-width:0">
+    `;
+    
+    if (isNumeric) {
+      const stats = [
+        { label: 'Average', value: displayColumn.average !== null ? parseFloat(displayColumn.average).toFixed(2) : 'N/A' },
+        { label: 'Standard Deviation', value: displayColumn.standard_deviation !== null ? parseFloat(displayColumn.standard_deviation).toFixed(2) : 'N/A' },
+        { label: 'Minimum', value: displayColumn.minimum !== null ? parseFloat(displayColumn.minimum).toFixed(0) : 'N/A' },
+        { label: 'Lower Quartile', value: displayColumn.lower_quartile !== null ? parseFloat(displayColumn.lower_quartile).toFixed(0) : 'N/A' },
+        { label: 'Median', value: displayColumn.median_quartile !== null ? parseFloat(displayColumn.median_quartile).toFixed(0) : 'N/A' },
+        { label: 'Upper Quartile', value: displayColumn.upper_quartile !== null ? parseFloat(displayColumn.upper_quartile).toFixed(0) : 'N/A' },
+        { label: 'Maximum', value: displayColumn.maximum !== null ? parseFloat(displayColumn.maximum).toFixed(0) : 'N/A' }
+      ];
+      
+      stats.forEach(stat => {
+        html += `
+          <div style="padding:10px;border-radius:4px;border:0.5px solid var(--border);background:var(--bg-elevated)">
+            <div style="font-size:9px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;margin-bottom:4px">${stat.label}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${stat.value}</div>
+          </div>
+        `;
+      });
+    } else {
+      const stats = [
+        { label: 'Minimum Length', value: displayColumn.min_string_length || 'N/A' },
+        { label: 'Maximum Length', value: displayColumn.max_string_length || 'N/A' },
+        { label: 'Average Length', value: displayColumn.average_string_length !== null ? parseFloat(displayColumn.average_string_length).toFixed(2) : 'N/A' }
+      ];
+      
+      stats.forEach(stat => {
+        html += `
+          <div style="padding:10px;border-radius:4px;border:0.5px solid var(--border);background:var(--bg-elevated)">
+            <div style="font-size:9px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;margin-bottom:4px">${stat.label}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${stat.value}</div>
+          </div>
+        `;
+      });
+    }
+    
+    html += `
+          </div>
+        </div>
+        
+        <!-- LEVEL 3: Distribution Graph Section (takes remaining ~50% height, scrollable) -->
+        <div style="display:flex;flex-direction:column;min-width:0;flex:1;overflow:hidden;padding:16px 20px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:12px;flex-shrink:0">Distribution (Top 10 values)</div>
+          
+          <!-- Y-Axis Label and Graph Container -->
+          <div style="display:flex;gap:8px;flex:1;min-width:0;overflow:hidden">
+            <!-- Y-Axis Label -->
+            <div style="display:flex;align-items:center;justify-content:center;width:30px;flex-shrink:0">
+              <div style="font-size:10px;color:var(--text-tertiary);font-weight:600;writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">Percentage (%)</div>
+            </div>
+            
+            <!-- Graph Area -->
+            <div style="display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden">
+              <!-- Bars Container -->
+              <div style="display:flex;align-items:flex-end;justify-content:center;gap:8px;flex:1;min-width:0;overflow-x:auto;overflow-y:visible;padding:20px 0 60px 0;position:relative">
+    `;
+    
+    // Generate vertical bars from top_n_data
+    const topNData = displayColumn.top_n_data || [];
+    
+    if (topNData.length === 0) {
+      html += `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--text-secondary);font-size:12px;white-space:nowrap">No distribution data available</div>`;
+    } else {
+      // Find max percent for normalization
+      const maxPercent = Math.max(...topNData.map(d => d.percent || 0));
+      
+      topNData.forEach((data, index) => {
+        const barHeight = maxPercent > 0 ? (data.percent / maxPercent) * 100 : 0;
+        
+        html += `
+            <!-- Bar ${index + 1} -->
+            <div style="display:flex;flex-direction:column;align-items:center;gap:0;flex-shrink:0;position:relative">
+              <!-- Count on top -->
+              <div style="font-size:11px;color:var(--text-secondary);font-weight:600;height:18px;display:flex;align-items:center">Count: ${data.count}</div>
+              
+              <!-- Bar with percent inside -->
+              <div style="height:120px;width:60px;display:flex;align-items:flex-end;justify-content:center;background:rgba(255,75,75,0.1);border-radius:4px;position:relative">
+                <div style="background:linear-gradient(180deg,#FF4B4B,#FF8C8C);height:${barHeight}%;width:100%;border-radius:4px 4px 0 0;position:relative;display:flex;align-items:center;justify-content:center;flex-direction:column;min-height:30px">
+                  <div style="font-size:13px;font-weight:700;color:#fff">${data.percent.toFixed(1)}%</div>
+                </div>
+              </div>
+              
+              <!-- Value label - 2 lines max, top aligned -->
+              <div style="font-size:11px;color:var(--text-secondary);text-align:center;width:70px;word-break:break-word;overflow:hidden;max-height:30px;line-height:1.4;white-space:normal;min-height:28px">${escapeHtml(String(data.value).substring(0, 20))}</div>
+            </div>
+        `;
+      });
+    }
+    
+    html += `
+              </div>
+              
+              <!-- X-Axis Label -->
+              <div style="text-align:center;padding:8px 0;font-size:10px;color:var(--text-tertiary);font-weight:600">${escapeHtml(displayColumn.column_name)} Values</div>
+            </div>
+          </div>
+        </div>
+        
+      </div>
+    `;
+    
+    container.innerHTML = html;
+  }
   
   // Filter button listeners
   document.getElementById('preview-filter-failing')?.addEventListener('click', () => {
@@ -2971,6 +3964,7 @@ function openAddRule(tab = 'ai', editId = null) {
   state.panel = 'add-rule';
   renderPanel();
 }
+
 function closePanel() {
   state.panel = null;
   state.addRule.editingRuleId = null;
@@ -3182,6 +4176,18 @@ async function refreshDashboard() {
   await loadDashboardSummary();
 
   render();
+  
+  // Refresh anomalies tab if currently viewing it (after render completes)
+  setTimeout(async () => {
+    const t = currentTable();
+    if (t) {
+      const activeTab = document.querySelector('[data-tab].active');
+      if (activeTab && activeTab.dataset.tab === 'anomalies') {
+        console.log('[refreshDashboard] Refreshing anomalies tab after scan');
+        await renderAnomaliesTab(t.name);
+      }
+    }
+  }, 100);
 
   showToast(
     "Dashboard refreshed",
@@ -3209,9 +4215,15 @@ function render() {
 initTheme();
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.panel) closePanel();
+  if (e.key === 'Escape' && state.panel) {
+    if (state.panel === 'add-rule') closePanel();
+    if (state.panel === 'add-anomaly') closeAnomalyPanel();
+  }
 });
-$('#panel-backdrop').addEventListener('click', closePanel);
+$('#panel-backdrop').addEventListener('click', () => {
+  if (state.panel === 'add-rule') closePanel();
+  if (state.panel === 'add-anomaly') closeAnomalyPanel();
+});
 
 loadDashboardSummary().then(() => {
   render();

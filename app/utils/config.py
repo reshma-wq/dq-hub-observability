@@ -25,7 +25,9 @@ DQ_HUB_DATASET = get_secret("DQ_HUB_DATASET")
 EMAIL_SENDER = get_secret("EMAIL_SENDER")
 EMAIL_PASSWORD = get_secret("EMAIL_PASSWORD")
 EMAIL_RECIPIENT = get_secret("EMAIL_RECIPIENT")
-
+# Fetch from Secret Manager (raw secrets only, no processing)
+SCAN_JOB_MAPPING_JSON = get_secret("SCAN_JOB_MAPPING")
+PROFILING_TABLE = get_secret("PROFILING_TABLE")
 MODEL_NAME = os.getenv(
     "MODEL_NAME",
     "publishers/google/models/gemini-3.5-flash"
