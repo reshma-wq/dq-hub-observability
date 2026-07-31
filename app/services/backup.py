@@ -5,11 +5,8 @@ from app.utils.config import PROJECT_ID, TARGET_DATASET
 
 # Table incremental configuration - only incremental column
 TABLE_INCREMENTAL_CONFIG = {
-    "marketing_campaigns": "created_ts",
-    "customer_orders": "order_date",
-    "customer_profiles": "signup_date",
-    "sales_transactions": "transaction_date",
-    "product_catalog": "last_updated"
+    "campaign_data": "created_ts",
+    "sales": "sale_date"
 }
 
 class BackupService:
