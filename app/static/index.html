@@ -2586,7 +2586,7 @@ async function renderAnomaliesTab(tableName) {
           <span style="color:var(--text-secondary)" id="ai-anom-counter">0 of ${aiAnomalies.length} selected</span>
           <div style="display:flex;gap:8px">
             <button class="btn btn-sm" id="ai-dismiss-all-anom">Dismiss all</button>
-            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span> anomal<span id="anom-plural">ies</span></button>
+            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span><span id="anom-plural"> anomalies</span></button>
           </div>
         </div>
       </div>
@@ -2675,7 +2675,7 @@ async function renderAnomaliesTab(tableName) {
       const checked = state.addRule.aiSelected.length;
       if (counter) counter.textContent = `${checked} of ${aiAnomalies.length} selected`;
       if (countDisplay) countDisplay.textContent = checked;
-      if (pluralEl) pluralEl.textContent = checked === 1 ? 'y' : 'ies';
+      if (pluralEl) pluralEl.textContent = checked === 1 ? ' anomaly' : ' anomalies';
       if (selAllCb) selAllCb.checked = checked === aiAnomalies.length;
       if (addBtn) {
         addBtn.style.opacity = checked === 0 ? '0.5' : '1';
@@ -2814,7 +2814,7 @@ async function generateAnomaliesAI(tableName) {
           <span style="color:var(--text-secondary)" id="ai-anom-counter">0 of ${anomalies.length} selected</span>
           <div style="display:flex;gap:8px">
             <button class="btn btn-sm" id="ai-dismiss-all-anom">Dismiss all</button>
-            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span> anomal<span id="anom-plural">ies</span></button>
+            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span><span id="anom-plural"> anomalies</span></button>
           </div>
         </div>
       </div>
@@ -2902,7 +2902,7 @@ function updateAnomalyCheckboxes(anomalies) {
   const checked = state.addRule.aiSelected.length;
   if (counter) counter.textContent = `${checked} of ${anomalies.length} selected`;
   if (countDisplay) countDisplay.textContent = checked;
-  if (pluralEl) pluralEl.textContent = checked === 1 ? 'y' : 'ies';
+  if (pluralEl) pluralEl.textContent = checked === 1 ? ' anomaly' : ' anomalies';
   if (selAllCb) selAllCb.checked = checked === anomalies.length;
   if (addBtn) {
     addBtn.style.opacity = checked === 0 ? '0.5' : '1';
