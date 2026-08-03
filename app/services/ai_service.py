@@ -1331,6 +1331,15 @@ Detect changes in calculated metrics/ratios:
 - Any ratio/percentage metric deviations
 - Cross-metric consistency - When related metrics diverge unexpectedly
 
+CRITICAL FOR KPI_BEHAVIOR: In the compiled_sql, the column_name output MUST be ALL columns used in the formula, concatenated with " / " separator.
+Examples for compiled_sql column_name output:
+- CTR: 'clicks / impressions' AS column_name (not just 'clicks')
+- CPC: 'cost / clicks' AS column_name (not just 'cost')
+- CPM: 'cost / impressions' AS column_name
+- ROAS: 'revenue / ad_spend' AS column_name
+- Conversion Rate: 'conversions / visitors' AS column_name
+- Margin: 'revenue / cost' AS column_name
+
 --------------------------------------------------
 
 DISTRIBUTION SHIFT ANOMALIES
@@ -1372,6 +1381,7 @@ For every generated anomaly, provide JSON:
   "anomaly_category": "VOLUME|METRIC_BEHAVIOR|KPI_BEHAVIOR|DISTRIBUTION",
   "severity": "CRITICAL|HIGH|MEDIUM|LOW",
   "column_name": "column_name or null if table-level",
+  "formula_columns": ["col1", "col2", "col3"] (ONLY for KPI_BEHAVIOR anomalies - list ALL columns used in formula. For other categories, omit this field or set to null),
   "description": "What changed and why it matters",
   "sql_condition": "Simple WHERE clause condition for the anomaly",
   "compiled_sql": "SELECT statement comparing periods with previous_value, current_value, change_pct"
@@ -1413,6 +1423,7 @@ compiled_sql REQUIREMENTS:
   - Make SQL readable when stored in database (NOT single paragraph)
 - Use CASE WHEN for period comparison
 - Use SAFE_DIVIDE for division: SAFE_DIVIDE((current_value - previous_value), previous_value) * 100
+- CRITICAL: Every COUNT(), SUM(), CASE statement MUST close with END) - NOT ENDpoint, NOT anything else
 - FORMATTED Example (with placeholders and CAST - MUST use single curly braces):
   SELECT
     CURRENT_TIMESTAMP() AS execution_ts,

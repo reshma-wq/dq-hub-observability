@@ -2506,7 +2506,7 @@ async function renderAnomaliesTab(tableName) {
   // EMPTY STATE: No active anomalies AND NO AI suggestions
   if (activeAnomalies.length === 0 && aiAnomalies.length === 0) {
     emptyHTML = `
-      <div class="empty">
+      <div class="empty" style="margin-bottom: 15px;">
         <h3>No anomalies yet</h3>
         <p>Start with AI suggestions tailored to this table's schema.</p>
         <div class="btn-row">
@@ -2520,7 +2520,7 @@ async function renderAnomaliesTab(tableName) {
   if (activeAnomalies.length > 0) {
     const rowsHTML = activeAnomalies.map((anom, idx) => `
       <div class="rt-row anomaly-row" style="cursor:pointer" data-anom-idx="${idx}" data-anom-name="${anom.anomaly_name}" data-col-name="${anom.column_name}" data-full-anom='${JSON.stringify(anom)}'>
-        <div class="rt-col mono" style="color: var(--text-secondary);">${anom.anomaly_category === 'VOLUME' ? 'ALL' : (anom.column_name || 'Table')}</div>
+        <div class="rt-col mono" style="color: var(--text-secondary);">${anom.anomaly_category === 'VOLUME' ? 'ALL' : (anom.anomaly_category === 'KPI_BEHAVIOR' && anom.formula_columns ? anom.formula_columns.join(' / ') : (anom.column_name || 'Table'))}</div>
         <div class="rt-col" style="color: var(--text-primary); font-weight: 500;">${anom.anomaly_name}</div>
         <div class="rt-col" style="color: ${anom.change_pct > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 500;">
           ${anom.change_pct !== null && anom.change_pct !== undefined ? (anom.change_pct > 0 ? '+' : '') + anom.change_pct.toFixed(2) + '%' : 'N/A'}
@@ -2552,7 +2552,7 @@ async function renderAnomaliesTab(tableName) {
   if (aiAnomalies.length > 0 && state.aiAnomaliesExpanded) {
     // Expanded view - show grid with checkboxes
     aiHTML = `
-      <div class="ai-expanded">
+      <div class="ai-expanded" style="margin-top: 32px;">
         <div class="ai-exp-head">
           <div class="ai-exp-title">
             <i class="ti ti-sparkles"></i>AI-suggested anomalies
@@ -2574,7 +2574,7 @@ async function renderAnomaliesTab(tableName) {
           <div class="ai-grid-row">
             <div><input type="checkbox" class="ai-anomaly-sel" data-anom="${a.id}" ${state.addRule.aiSelected.includes(a.id) ? 'checked' : ''}></div>
             <div>${getCategoryBadge(a.anomaly_category)}</div>
-            <div class="ai-sug-col">${a.anomaly_category === 'VOLUME' ? 'ALL' : (a.column_name || 'Table')}</div>
+            <div class="ai-sug-col">${a.anomaly_category === 'VOLUME' ? 'ALL' : (a.anomaly_category === 'KPI_BEHAVIOR' && a.formula_columns ? a.formula_columns.join(' / ') : (a.column_name || 'Table'))}</div>
             <div>
               <div class="ai-sug-name">${a.anomaly_name}</div>
               <div class="ai-sug-desc">${a.description}</div>
@@ -2586,7 +2586,7 @@ async function renderAnomaliesTab(tableName) {
           <span style="color:var(--text-secondary)" id="ai-anom-counter">0 of ${aiAnomalies.length} selected</span>
           <div style="display:flex;gap:8px">
             <button class="btn btn-sm" id="ai-dismiss-all-anom">Dismiss all</button>
-            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px;white-space:nowrap"><i class="ti ti-check"></i>Add <span id="anom-count">0</span> anomal<span id="anom-plural">ies</span></button>
+            <button class="btn btn-sm btn-primary" id="ai-add-selected-anom" style="display:flex;align-items:center;gap:6px"><i class="ti ti-check"></i>Add <span id="anom-count">0</span> anomal<span id="anom-plural">ies</span></button>
           </div>
         </div>
       </div>
@@ -2726,6 +2726,18 @@ async function generateAnomaliesAI(tableName) {
   const panel = $('#anomalies-panel');
   if (!panel) return;
   
+  // Clear old anomalies from state FIRST
+  const t = currentTable();
+  if (t) {
+    t.aiAnomalies = [];  // Clear immediately
+  }
+  
+  // Remove any existing AI suggestions or loading containers
+  const existingAI = panel.querySelector('.ai-expanded') || panel.querySelector('#ai-suggestions-temp') || panel.querySelector('.ai-banner');
+  if (existingAI) {
+    existingAI.remove();
+  }
+  
   // Show loading indicator but preserve active anomalies section
   const activeSection = panel.querySelector('.section:first-child');
   const tempContainer = document.createElement('div');
@@ -2790,7 +2802,7 @@ async function generateAnomaliesAI(tableName) {
           <div class="ai-grid-row">
             <div><input type="checkbox" class="ai-anomaly-sel" data-anom="${a.id}" ${state.addRule.aiSelected.includes(a.id) ? 'checked' : ''}></div>
             <div>${getCategoryBadge(a.anomaly_category)}</div>
-            <div class="ai-sug-col">${a.anomaly_category === 'VOLUME' ? 'ALL' : (a.column_name || 'Table')}</div>
+            <div class="ai-sug-col">${a.anomaly_category === 'VOLUME' ? 'ALL' : (a.anomaly_category === 'KPI_BEHAVIOR' && a.formula_columns ? a.formula_columns.join(' / ') : (a.column_name || 'Table'))}</div>
             <div>
               <div class="ai-sug-name">${a.anomaly_name}</div>
               <div class="ai-sug-desc">${a.description}</div>
@@ -2992,7 +3004,7 @@ function toggleAnomalyDetail(rowIdx, anomalyData) {
       
       <div style="display: flex; flex-direction: column;">
         <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; text-transform: uppercase;">Column Name</div>
-        <div style="font-family: monospace; color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.anomaly_category === 'VOLUME' ? 'ALL' : (anomalyData.column_name || 'N/A')}</div>
+        <div style="font-family: monospace; color: var(--text-primary); font-size: 14px; flex: 1; display: flex; align-items: center; font-weight: 500;">${anomalyData.anomaly_category === 'VOLUME' ? 'ALL' : (anomalyData.anomaly_category === 'KPI_BEHAVIOR' && anomalyData.formula_columns ? anomalyData.formula_columns.join(' / ') : (anomalyData.column_name || 'N/A'))}</div>
       </div>
       
       <div style="display: flex; flex-direction: column;">
