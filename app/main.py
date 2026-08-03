@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 from app.api import execution
 from app.api import dashboard
 from app.api import knowledge_hub
@@ -60,7 +61,5 @@ app.include_router(
 
 @app.get("/")
 def home():
-
-    return FileResponse(
-        "app/static/index.html"
-    )
+    index_path = Path(__file__).parent / "static" / "index.html"
+    return FileResponse(index_path)
